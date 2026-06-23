@@ -13,9 +13,9 @@ private, yours — so the next tool already knows. Ask Claude *"what was I just 
 
 Open source. Local-first. A primitive you build on.
 
-<p align="center"><img src="docs/assets/demo.png" width="100%" alt="Ask Claude what you were doing in another app — and it answers from your captured context"></p>
+<p align="center"><a href="https://youtu.be/WnltmAaom7E"><img src="docs/assets/demo.png" width="100%" alt="Ask Claude what you were doing in another app — and it answers from your captured context"></a></p>
 
-<p align="center"><em>Ask Claude <strong>"what was I just doing in X?"</strong> — and it answers from your own captured activity.</em></p>
+<p align="center"><strong><a href="https://youtu.be/WnltmAaom7E">▶ Watch the demo</a></strong> — ask Claude <em>"what was I just doing in X?"</em> and it answers from your own captured activity.</p>
 
 ## Install — about 30 seconds
 
