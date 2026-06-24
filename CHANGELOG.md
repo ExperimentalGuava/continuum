@@ -2,6 +2,24 @@
 
 All notable changes. Dates are when the work landed; npm releases are tagged per version.
 
+## 0.6.0 — preferences: learn how you want your agents to work
+Beyond *who you are*, Continuum now learns *how you want your agent to work for you* — the standing
+instructions you'd otherwise repeat in every session ("be concise", "run the tests before the PR",
+"do lightweight research and cite sources", "prefer X over Y") — and, once you approve them, applies
+them to every agent automatically.
+- **Open, model-agnostic engine** (`daemon/preferences.mjs`). *Stated* preferences are extracted with
+  **no model at all** (free, zero-setup) from what you've actually said — canonical directive rules
+  plus dynamic "Prefer X over Y", with frequency + your own authored text driving confidence, every
+  candidate grounded in episode ids. *Inferred* preferences come from the configured model — **Ollama
+  is decent, free and local**; a frontier model (Pro) is sharpest. Grounded JSON, never invented.
+- **Human-curated, never silent.** Nothing is applied until you approve it. Curate in the dashboard's
+  new **Preferences** view (Active + Suggested, with approve / edit / dismiss) or from the CLI
+  (`continuum preferences`). Approved preferences live in `~/.continuum/preferences.json`.
+- **Applied automatically, always free.** Approved preferences are injected into the MCP `initialize`
+  instructions, so every agent session starts already knowing how you like to work — no model needed
+  to *apply* them, on any tier.
+- 13-assertion test; dashboard also honors `PORT`.
+
 ## 0.5.0 — MCP server, redesigned for ambient personalization
 The agent now comes to *understand you* and tailor its help, deciding for itself when to reach for memory.
 - **Three sharp tools** — `recall` (find specific moments; filter by time/app/source), `catch_up`
