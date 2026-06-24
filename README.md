@@ -17,7 +17,19 @@ Open source. Local-first. One command to connect.
 
 <p align="center"><strong><a href="https://youtu.be/WnltmAaom7E">▶ Watch the demo</a></strong> — ask Claude <em>"what was I just doing in X?"</em> and it answers from your own captured activity.</p>
 
-## Install — about 30 seconds
+## Get started — hand it to your agent
+
+Nobody wires up dev tools by hand anymore — you tell your agent to. Paste this into **Claude Code,
+Codex, or Cursor** and it installs Continuum, starts capture, and connects the MCP for you:
+
+> Set up Continuum so you can see my desktop context: install it (`npm i -g continuum-core`), start
+> capture in the background (`continuum start &` — I'll grant Screen Recording when macOS prompts),
+> then add the Continuum MCP server to your config using the JSON from `continuum mcp-config`. After
+> that, use the `search_context` and `recent_activity` tools whenever I ask what I was working on.
+
+Then just ask it *"what was I doing in X?"* — that's the whole setup.
+
+## Or run it yourself — about 30 seconds
 
 Needs **Node 18+**. Don't have it? Grab it at [nodejs.org](https://nodejs.org) or `brew install node`.
 
@@ -59,11 +71,7 @@ Then fully quit/reopen Claude (Cmd+Q) and ask *"what was I working on this morni
 { "mcpServers": { "continuum": { "command": "node", "args": [".../daemon/mcp-server.mjs"] } } }
 ```
 
-**Or just hand it to a coding agent** — paste this into Claude Code / Codex / Cursor and it wires itself up:
-
-> Set up the Continuum MCP so you can see my desktop context: run `npm i -g continuum-core`, start
-> capture with `continuum start &`, then add the MCP server from `continuum mcp-config` to your
-> config. After that, use the `search_context` and `recent_activity` tools when I ask what I was doing.
+(Or skip all this and use the **hand-it-to-your-agent** prompt up top — it does install + connect in one paste.)
 
 Keep `continuum start` running so there's something to recall.
 
