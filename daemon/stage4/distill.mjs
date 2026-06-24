@@ -48,3 +48,17 @@ export async function rollupOver(summaries, { llm, period = 'week' }) {
   const body = summaries.map((s) => (s.summary ?? s)).join('\n');
   return llm(`Synthesize this ${period} from the daily summaries: themes, progress, recurring people/projects, trajectory.`, body, 500);
 }
+
+// Issue #2 — turn a raw (noisy OCR) episode into structured fields with the injectable LLM.
+// Semantic, so it generalizes across UI redesigns (vs brittle per-site parsers). Optional;
+// returns the episode unchanged if no LLM is configured.
+export async function structureEpisode(ep, { llm } = {}) {
+  if (!llm) return ep;
+  const raw = await llm(
+    'Clean a raw screen capture into JSON. Return ONLY: {"summary": one sentence on what the user was doing, "authored": text the USER themselves wrote/typed (else ""), "app": the app}. Exclude UI chrome and other people\'s content from "authored".',
+    `App: ${ep.app}\n\n${ep.text}`, 300,
+  );
+  let parsed = {};
+  try { parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)); } catch { /* model returned non-JSON */ }
+  return { ...ep, structured: { summary: parsed.summary || '', authored: parsed.authored || '', app: parsed.app || ep.app } };
+}

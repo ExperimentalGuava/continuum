@@ -1,4 +1,4 @@
-import { runDailyRollup, cluster } from './distill.mjs';
+import { runDailyRollup, cluster, structureEpisode } from './distill.mjs';
 import { localEmbedder, mockLLM, mockGraph } from '../adapters.mjs';
 
 let pass = 0, fail = 0;
@@ -30,6 +30,16 @@ const eps = [
   ok('the rest deferred (still searchable at T0)', res.deferred === res.clusters - 2 && res.deferred > 0, `deferred=${res.deferred}`);
   ok('graph writes == summaries (T3 on distilled apex)', res.graphWrites === 2 && g.calls.length === 2);
   ok('highest-salience cluster summarized first', res.summaries[0].salience >= res.summaries[1].salience, `${res.summaries.map(s => s.salience)}`);
+}
+
+// #2 — LLM structuring pass
+{
+  const jsonLLM = async () => '{"summary":"replying on X","authored":"thanks for the support!","app":"Google Chrome"}';
+  const s = await structureEpisode({ app: 'Google Chrome', text: 'X Home ... thanks for the support! ... Trending ...' }, { llm: jsonLLM });
+  ok('structureEpisode extracts the user-authored text', s.structured.authored === 'thanks for the support!');
+  ok('structureEpisode sets a summary', s.structured.summary.length > 0);
+  const passthrough = await structureEpisode({ app: 'X', text: 'hi' }, { llm: null });
+  ok('no llm → passthrough (no structured field)', passthrough.structured === undefined);
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'}  ${pass} passed, ${fail} failed\n`);
