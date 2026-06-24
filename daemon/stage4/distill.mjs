@@ -62,3 +62,42 @@ export async function structureEpisode(ep, { llm } = {}) {
   try { parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)); } catch { /* model returned non-JSON */ }
   return { ...ep, structured: { summary: parsed.summary || '', authored: parsed.authored || '', app: parsed.app || ep.app } };
 }
+
+// Stage 2 (#8) — semantic labeling: what a region IS (type) and WHO authored it (owner), the way a
+// person reads a screen. Labels are a closed enum + confidence (never free text), so the model can
+// organize but cannot fabricate content. Below a confidence floor we emit `unknown` over a guess.
+export const REGION_TYPES = ['document', 'ai-chat', 'message', 'social-post', 'comment', 'composer', 'nav', 'toolbar', 'ad', 'result', 'unknown'];
+export const REGION_OWNERS = ['me', 'other', 'system', 'unknown'];
+
+function heuristicType(ep) {
+  const app = (ep.app || '').toLowerCase(), t = (ep.text || '').toLowerCase();
+  if (/(claude|chatgpt|gemini|copilot|perplexity)/.test(app) || /\b(chatgpt|claude|ai assistant)\b/.test(t)) return 'ai-chat';
+  if (/(code|xcode|vim|emacs|terminal|iterm|jetbrains|intellij|pycharm|sublime|zed)/.test(app)) return 'document';
+  if (/(word|docs|notion|obsidian|pages|notes|bear|craft)/.test(app)) return 'document';
+  if (/(mail|gmail|outlook|slack|discord|messages|whatsapp|telegram|teams)/.test(app)) return 'message';
+  if (app === 'x' || /\b(twitter|reddit|linkedin|facebook|instagram|threads|mastodon)\b/.test(app) || /\b(repost|retweet|upvote)\b/.test(t)) return 'social-post';
+  return 'unknown';
+}
+// We only assert ownership from a positive signal (focused input / extracted authored text); absence
+// of a signal is `unknown`, never an assumed "other".
+function heuristicOwner(ep) {
+  if ((ep.source_mix || []).includes('input')) return 'me';
+  if (ep.structured && ep.structured.authored) return 'me';
+  return 'unknown';
+}
+
+export async function labelEpisode(ep, { llm, minConf = 0.4 } = {}) {
+  const hType = heuristicType(ep), hOwner = heuristicOwner(ep);
+  const heur = { type: hType, owner: hOwner, conf: { type: hType === 'unknown' ? 0.3 : 0.6, owner: hOwner === 'unknown' ? 0.3 : 0.8 } };
+  if (!llm) return { ...ep, label: heur };
+  const raw = await llm(
+    'Classify this captured screen region. Return ONLY JSON {"type": one of [document,ai-chat,message,social-post,comment,composer,nav,toolbar,ad,result,unknown], "owner": one of [me,other,system,unknown] (me = the user authored it themselves), "conf": number 0..1}. Use "unknown" when unsure. Do NOT invent or quote content.',
+    `App: ${ep.app}\n\n${(ep.text || '').slice(0, 1500)}`, 120,
+  );
+  let p = {};
+  try { p = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)); } catch { /* non-JSON → heuristic */ }
+  const type = REGION_TYPES.includes(p.type) ? p.type : heur.type;
+  const owner = REGION_OWNERS.includes(p.owner) ? p.owner : heur.owner;
+  const conf = typeof p.conf === 'number' ? Math.max(0, Math.min(1, p.conf)) : 0.5;
+  return { ...ep, label: { type: conf < minConf ? 'unknown' : type, owner, conf: { type: conf, owner: heur.conf.owner } } };
+}
