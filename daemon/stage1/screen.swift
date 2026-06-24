@@ -25,8 +25,10 @@ let EXCLUDED: Set<String> = {
 }()
 
 // Skip Continuum's own surfaces (the dashboard page + the terminal running `continuum start`)
-// so it never captures itself. Matched on distinctive on-screen text.
-let SELF_MARKERS = ["What your machine captured", "continuum: tier=", "capture=screen embed="]
+// so it never captures itself. Matched on distinctive on-screen text. Includes the redesigned
+// dashboard's strings (the old markers missed it → ~5% self-capture leakage in the field).
+let SELF_MARKERS = ["What your machine captured", "continuum: tier=", "capture=screen embed=",
+                    "Ask your memory anything", "WORTH REMEMBERING", "Everything stays on this Mac"]
 
 // Browsers prefix every page with their tab/bookmark bar — crop the top band before OCR so
 // episodes start with the page content, not the chrome. (CGImage cropping origin is top-left.)
