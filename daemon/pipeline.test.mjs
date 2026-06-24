@@ -18,6 +18,7 @@ await p.ingest(ev(40_000, 'Browser', 'reading documentation about the temporal k
 await p.flush();
 
 ok('two coherent episodes formed', p.episodes.length === 2, `got ${p.episodes.length}`);
+ok('episodes are labeled (type + owner)', p.episodes.every((e) => e.label && e.label.type && e.label.owner), JSON.stringify(p.episodes.map((e) => e.label)));
 
 const r = await p.search('what was I writing to the design team?', { now: 40_000 });
 ok('retrieval surfaces the email episode', r[0].ep.app === 'Editor', `top=${r[0]?.ep.app}`);

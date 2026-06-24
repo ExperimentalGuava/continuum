@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { Segmenter, simhash, hamming } from './stage2/segmenter.mjs';
 import { LineNovelty } from './stage2/novelty.mjs';
 import { HybridIndex } from './stage3/index.mjs';
-import { runDailyRollup } from './stage4/distill.mjs';
+import { runDailyRollup, labelEpisode } from './stage4/distill.mjs';
 import { answerQuery } from './retrieval.mjs';
 
 export class Pipeline {
@@ -35,9 +35,10 @@ export class Pipeline {
     if (this._recent.some((h) => hamming(h, sh) <= 4)) return;
     this._recent.push(sh); if (this._recent.length > 12) this._recent.shift();
 
-    this.episodes.push(ep);
-    await this.index.add(ep);           // Stage 3: searchable immediately (T0)
-    if (this.onEpisode) this.onEpisode(ep);
+    const labeled = await labelEpisode(ep, {});   // Stage 2: grounded type + owner (heuristic; cheap, no LLM)
+    this.episodes.push(labeled);
+    await this.index.add(labeled);      // Stage 3: searchable immediately (T0)
+    if (this.onEpisode) this.onEpisode(labeled);
   }
 
   search(query, opts) { return this.index.search(query, opts); }
