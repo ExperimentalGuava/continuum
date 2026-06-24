@@ -23,6 +23,9 @@
 const WORD = /[a-z0-9]+/gi;
 const tokens = (s) => (s.toLowerCase().match(WORD) || []);
 const shingles = (s) => { const t = tokens(s); if (t.length < 2) return t; const g = []; for (let i = 0; i < t.length - 1; i++) g.push(t[i] + ' ' + t[i + 1]); return g; };
+// Hard-cap a single capture's text to `max` whitespace-words — bounds runaway episodes from one
+// oversized frame or a fast feedback burst (no episode can exceed ~maxTokens).
+const capWords = (s, max) => { const w = (s || '').split(/\s+/); return w.length > max ? w.slice(0, max).join(' ') : s; };
 
 // ---------- 64-bit SimHash (FNV-1a) for near-duplicate detection ----------
 const MASK64 = 0xffffffffffffffffn;
@@ -141,19 +144,22 @@ export class Segmenter {
       return out;
     }
 
-    // 4) size cap → chunk
-    if (t - seg.start > this.cfg.maxMs || seg.tokens > this.cfg.maxTokens) {
+    // 4) size cap → chunk. Account for the INCOMING capture (and hard-cap a single one) so one huge
+    // frame or a fast burst can't grow an unbounded episode — the bloat the field read surfaced.
+    const capped = capWords(text, this.cfg.maxTokens);
+    const incoming = tokens(capped).length;
+    if (t - seg.start > this.cfg.maxMs || seg.tokens + incoming > this.cfg.maxTokens) {
       const e = this._close(seg, 'maxsize'); if (e) out.push(e);
-      this.open.set(wid, this._new(ev, text, t));
+      this.open.set(wid, this._new(ev, capped, t));
       return out;
     }
 
     // 5) related content in the same window → append + coalesce
     this._accrue(seg, t);
-    seg.text += ' ' + text;
-    seg.lastText = text;
-    seg.simhash = sh;
-    seg.tokens += tokens(text).length;
+    seg.text += ' ' + capped;
+    seg.lastText = capped;
+    seg.simhash = simhash(capped);
+    seg.tokens += incoming;
     seg.updateCount++;
     seg.sourceMix.add(ev.source);
     return out;
@@ -163,11 +169,12 @@ export class Segmenter {
   flush() { const out = []; for (const [, seg] of this.open) { const e = this._close(seg, 'flush'); if (e) out.push(e); } this.open.clear(); return out; }
 
   _new(ev, text, t) {
+    const txt = capWords(text, this.cfg.maxTokens);   // cap the very first capture too
     return {
       id: `seg_${++this.seq}`, app: ev.app || '', window_id: ev.window_id || ev.app || 'unknown',
       url_host: ev.url_host || null, title: ev.title || null,
       start: t, lastActive: t, activeMs: 0,
-      text, lastText: text, simhash: simhash(text), tokens: tokens(text).length,
+      text: txt, lastText: txt, simhash: simhash(txt), tokens: tokens(txt).length,
       updateCount: 1, dedupCount: 0, sourceMix: new Set([ev.source]),
     };
   }
