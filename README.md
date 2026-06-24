@@ -44,7 +44,7 @@ Runs free and on-device; point it at **Ollama** or add an **OpenAI / Anthropic**
 
 <p align="center"><img src="docs/assets/pipeline.svg" width="100%" alt="capture → segment → index → distill"></p>
 
-Capture → segment → index → distill: ~29k raw daily events become ~30 LLM calls, and the LLM never touches the capture path. The stages are importable modules — a useful tool is ~20 lines (see [`examples/`](examples/)). Deep dive: [architecture](docs/architecture/ingestion-pipeline.md).
+Capture → segment → index → distill. The first three run locally and free; only distill calls an LLM — batched to roughly **1000× fewer calls** than processing every frame, and never on the capture path. The stages are importable modules — a useful tool is ~20 lines (see [`examples/`](examples/)). Deep dive: [architecture](docs/architecture/ingestion-pipeline.md).
 
 ## Develop
 
