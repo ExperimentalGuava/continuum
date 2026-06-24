@@ -2,7 +2,7 @@
 
 All notable changes. Dates are when the work landed; npm releases are tagged per version.
 
-## 0.3.1 — capture quality + audio (verified on real data)
+## 0.4.0 — capture quality + audio (verified on real data)
 The round that made capture "see (and hear) the screen the way a person does."
 
 - **Audio capture (meetings).** Opt-in (`capture.audio: true`) on-device transcription of **two

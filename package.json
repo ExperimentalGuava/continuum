@@ -1,6 +1,6 @@
 {
   "name": "continuum-core",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Continuum — an open capture + memory layer for your computer. Capture everything you do (event-driven, on-device), segment it, index it, and selectively distill it into a temporal knowledge graph. A shovel: build your own use cases on top.",
   "type": "module",
   "bin": {
