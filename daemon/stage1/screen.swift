@@ -30,14 +30,10 @@ let EXCLUDED: Set<String> = {
 let SELF_MARKERS = ["What your machine captured", "continuum: tier=", "capture=screen embed=",
                     "Ask your memory anything", "WORTH REMEMBERING", "Everything stays on this Mac"]
 
-// Browsers prefix every page with their tab/bookmark bar — crop the top band before OCR so
-// episodes start with the page content, not the chrome. (CGImage cropping origin is top-left.)
-let BROWSERS: Set<String> = ["Google Chrome", "Safari", "Arc", "Firefox", "Microsoft Edge", "Brave Browser", "Opera"]
-func cropTopBand(_ image: CGImage, fraction: Double) -> CGImage {
-  let band = Int(Double(image.height) * fraction)
-  let rect = CGRect(x: 0, y: band, width: image.width, height: image.height - band)
-  return image.cropping(to: rect) ?? image
-}
+// We capture the WHOLE window — a human sees the entire screen, chrome included, and the tab/
+// bookmark bar carries real context ("which site am I on", "what's open"). We do NOT crop it away.
+// Redundant chrome (the same bookmark bar every frame) is handled downstream by line-level novelty
+// (capture it once as context, don't re-encode it each frame) — structure, not cropping.
 
 func nowMs() -> Int { Int(Date().timeIntervalSince1970 * 1000) }
 func emit(_ obj: [String: Any]) {
@@ -63,8 +59,7 @@ func captureFocusedWindow() async -> (CGImage, String, String)? {
   cfg.height = Int(window.frame.height * 2)
   cfg.showsCursor = false
   guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else { return nil }
-  let out = BROWSERS.contains(appName) ? cropTopBand(img, fraction: 0.12) : img   // drop tab/bookmark bar
-  return (out, appName, title)
+  return (img, appName, title)   // whole window; chrome is de-duplicated downstream, never cropped
 }
 
 // Average-hash (8×8 grayscale) for cheap "did the screen change?" detection.
@@ -99,7 +94,7 @@ func ocr(_ image: CGImage) -> String {
     let words = t.split(separator: " ").count
     if (words >= 2 || t.count >= 16), t.count <= 5000, !seen.contains(t) { seen.insert(t); kept.append(t) }
   }
-  return kept.joined(separator: " ")
+  return kept.joined(separator: "\n")   // preserve line structure so novelty can suppress repeated chrome
 }
 
 // --- AX focused-element capture (issue #1): the clean "user authored this" signal ---

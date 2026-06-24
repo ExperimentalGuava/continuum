@@ -3,21 +3,29 @@
 // reads NDJSON CaptureEvents on stdin (what the Swift helper emits).
 import { createInterface } from 'node:readline';
 import { Segmenter, simhash, hamming } from './stage2/segmenter.mjs';
+import { LineNovelty } from './stage2/novelty.mjs';
 import { HybridIndex } from './stage3/index.mjs';
 import { runDailyRollup } from './stage4/distill.mjs';
 import { answerQuery } from './retrieval.mjs';
 
 export class Pipeline {
-  constructor({ embed, onEpisode, segmenterOpts } = {}) {
+  constructor({ embed, onEpisode, segmenterOpts, novelty } = {}) {
     this.embed = embed;
     this.seg = new Segmenter(segmenterOpts);
     this.index = new HybridIndex({ embed });
     this.episodes = [];                 // buffer for Stage 4
     this.onEpisode = onEpisode;
     this._recent = [];                  // recent episode SimHashes, for cross-episode dedup
+    this.novelty = novelty === false ? null : (novelty || new LineNovelty());   // suppress repeated chrome
   }
 
-  async ingest(ev) { for (const ep of this.seg.ingest(ev)) await this._store(ep); }
+  // Capture the whole window, but drop lines already seen recently for it (stable chrome) so only
+  // what changed is re-encoded. A pure-chrome refresh yields nothing novel → skipped entirely.
+  async ingest(ev) {
+    const e = this.novelty ? this.novelty.filter(ev) : ev;
+    if (!e) return;
+    for (const ep of this.seg.ingest(e)) await this._store(ep);
+  }
   async flush() { for (const ep of this.seg.flush()) await this._store(ep); }
 
   async _store(ep) {
