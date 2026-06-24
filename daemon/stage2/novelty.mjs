@@ -20,10 +20,12 @@ export class LineNovelty {
   // Returns the event with already-seen lines stripped, or null if nothing new (pure chrome refresh).
   filter(ev) {
     if (!ev || typeof ev.text !== 'string') return ev;
-    const wid = ev.window_id || ev.app || 'unknown';
+    // Key by APP, not window title: the bookmark bar / toolbar is identical across every page of a
+    // browser, so suppress it once per app rather than re-capturing it on each page navigation.
+    const akey = ev.app || ev.window_id || 'unknown';
     const t = ev.t || 0;
-    let mem = this.seen.get(wid);
-    if (!mem) { mem = new Map(); this.seen.set(wid, mem); }
+    let mem = this.seen.get(akey);
+    if (!mem) { mem = new Map(); this.seen.set(akey, mem); }
 
     const kept = [];
     for (const raw of ev.text.split(/\n+/)) {

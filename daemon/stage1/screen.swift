@@ -76,23 +76,34 @@ func aHash(_ image: CGImage) -> UInt64 {
 }
 func hamming(_ a: UInt64, _ b: UInt64) -> Int { var x = a ^ b, c = 0; while x != 0 { c += 1; x &= x - 1 }; return c }
 
-// OCR in reading order (top→bottom, left→right). Vision is near-perfect on crisp screen text.
+// Drop "glyph soup" — lines mostly symbols / icon misreads (sparklines, engagement glyphs, bullets),
+// not language. Real content is majority-alphanumeric, so this keeps it.
+func looksLikeGlyphSoup(_ s: String) -> Bool {
+  let scalars = Array(s.unicodeScalars.filter { $0 != " " })
+  if scalars.isEmpty { return true }
+  let alnum = scalars.filter { CharacterSet.alphanumerics.contains($0) }.count
+  return Double(alnum) / Double(scalars.count) < 0.5
+}
+
+// OCR in reading order (top→bottom, left→right). Vision is near-perfect on crisp screen text; we drop
+// low-confidence observations (icon/glyph misreads on dense feeds) and symbol-soup lines.
 func ocr(_ image: CGImage) -> String {
   let req = VNRecognizeTextRequest()
   req.recognitionLevel = .accurate
   req.usesLanguageCorrection = true
   try? VNImageRequestHandler(cgImage: image, options: [:]).perform([req])
+  let minConf = Float(ProcessInfo.processInfo.environment["CONTINUUM_OCR_MINCONF"] ?? "0.4") ?? 0.4
   var rows: [(row: Int, x: CGFloat, text: String)] = []
   for obs in (req.results ?? []) {
-    guard let s = obs.topCandidates(1).first?.string else { continue }
-    rows.append((row: Int((1 - obs.boundingBox.midY) * 60), x: obs.boundingBox.minX, text: s))
+    guard let cand = obs.topCandidates(1).first, cand.confidence >= minConf else { continue }   // drop low-confidence misreads
+    rows.append((row: Int((1 - obs.boundingBox.midY) * 60), x: obs.boundingBox.minX, text: cand.string))
   }
   rows.sort { ($0.row, $0.x) < ($1.row, $1.x) }
   var seen = Set<String>(), kept: [String] = []
   for r in rows {
     let t = r.text.trimmingCharacters(in: .whitespacesAndNewlines)
     let words = t.split(separator: " ").count
-    if (words >= 2 || t.count >= 16), t.count <= 5000, !seen.contains(t) { seen.insert(t); kept.append(t) }
+    if (words >= 2 || t.count >= 16), t.count <= 5000, !looksLikeGlyphSoup(t), !seen.contains(t) { seen.insert(t); kept.append(t) }
   }
   return kept.joined(separator: "\n")   // preserve line structure so novelty can suppress repeated chrome
 }

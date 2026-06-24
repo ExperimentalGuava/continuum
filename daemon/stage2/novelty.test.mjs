@@ -20,8 +20,13 @@ ok('changed content is kept', /second paragraph/.test(e2.text));
 const e3 = nf.filter({ t: 5000, app: 'Chrome', window_id: 'Chrome|x', text: chrome });
 ok('pure chrome refresh → skipped (null)', e3 === null);
 
-const e4 = nf.filter({ t: 6000, app: 'Chrome', window_id: 'Chrome|y', text: chrome });
-ok('a different window is independent (chrome kept there)', e4 && /Bookmarks Bar/.test(e4.text));
+// chrome suppressed across a DIFFERENT page (window title) of the SAME app — keyed per-app
+const e4 = nf.filter({ t: 6000, app: 'Chrome', window_id: 'Chrome|other-page', text: [chrome, 'a brand new article on a different page'].join('\n') });
+ok('same app, new page → chrome NOT re-captured', e4 && !/Bookmarks Bar/.test(e4.text) && /different page/.test(e4.text), e4 && e4.text);
+
+// a different APP is independent (its own chrome is real content the first time)
+const e4b = nf.filter({ t: 6500, app: 'Safari', window_id: 'Safari|x', text: chrome });
+ok('a different app is independent', e4b && /Bookmarks Bar/.test(e4b.text));
 
 const e5 = nf.filter(cap(7 * 60_000, 'Article: a later paragraph'));
 ok('after TTL, chrome is fresh again (scroll-back / real change)', /Bookmarks Bar/.test(e5.text));
