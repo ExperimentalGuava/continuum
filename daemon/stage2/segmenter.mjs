@@ -5,7 +5,7 @@
 // AX/NSWorkspace/FSEvents capture helper (Stage 1) or any other producer.
 //
 //   CaptureEvent { t:ms, source:'ax'|'ocr'|'clipboard'|'file'|'audio',
-//                  app, window_id, url_host?, title?, text, secure? }
+//                  app, window_id, url_host?, title?, text, secure?, speaker? }
 //   Episode      { id, app, window_id, url_host, title, start, end,
 //                  active_duration, text, source_mix[], dedup_count,
 //                  content_hash, salience, close_reason }
@@ -81,6 +81,7 @@ const DEFAULTS = {
   maxTokens: 4_000,
   activeGapCapMs: 30_000,    // cap per-gap active-time accrual
   sim: cosine,               // injectable similarity (swap in embeddings in prod)
+  fuseAudio: false,          // cross-modal fusion (#11): merge audio utterances into the active visual segment
 };
 
 export class Segmenter {
@@ -102,6 +103,22 @@ export class Segmenter {
     // 1) idle sweep — close any window whose last activity is older than idleMs
     for (const [wid, seg] of this.open) {
       if (t - seg.lastActive > this.cfg.idleMs) { const e = this._close(seg, 'idle'); if (e) out.push(e); this.open.delete(wid); }
+    }
+
+    // cross-modal fusion (#11): a spoken utterance attaches to the active visual segment of the
+    // same app at this timestamp — so a meeting's slides-seen + words-heard become ONE episode
+    // (the perceptual "unity assumption": signals co-occurring in time bind into one event).
+    if (this.cfg.fuseAudio && ev.source === 'audio') {
+      let host = null;
+      for (const [, s] of this.open) if (s.app === ev.app && (!host || s.lastActive > host.lastActive)) host = s;
+      if (host) {
+        this._accrue(host, t);
+        const line = (ev.speaker ? ev.speaker + ': ' : '') + text;
+        host.text += ' ' + line; host.lastText = line; host.simhash = simhash(line);
+        host.tokens += tokens(line).length; host.updateCount++; host.sourceMix.add('audio');
+        return out;
+      }
+      // no active visual segment → fall through; the utterance forms its own segment
     }
 
     const wid = ev.window_id || ev.app || 'unknown';
