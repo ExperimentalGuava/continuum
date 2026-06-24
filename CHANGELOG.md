@@ -2,6 +2,19 @@
 
 All notable changes. Dates are when the work landed; npm releases are tagged per version.
 
+## 0.5.0 — MCP server, redesigned for ambient personalization
+The agent now comes to *understand you* and tailor its help, deciding for itself when to reach for memory.
+- **Three sharp tools** — `recall` (find specific moments; filter by time/app/source), `catch_up`
+  (what you're doing now, no query), `profile` (who you are — projects, people, working style, taste).
+  Built so an LLM picks the right one and uses them proactively.
+- **Understanding by default** — a cheap user snapshot is injected into the MCP `initialize`
+  instructions, so the agent starts every session already knowing roughly who you are.
+- **Structured, attributed, scrubbed returns** with citation ids, snippet-capped to keep the agent's context lean.
+- **Trust layer** — egress redaction of PII + secret-shaped strings (API keys, tokens, JWTs), honored
+  app exclusions, `mcp.paused` / `mcp.sinceDays` scope, and a local audit log surfaced in the
+  dashboard's Privacy view ("what your agent asked"). Read-only.
+- Transport-free core (`daemon/mcp.mjs`) with a 25-assertion test. Design: `docs/architecture/mcp.md`.
+
 ## 0.4.1
 - **MCP tools reframed for ambient personalization** — the `search_context` / `recent_activity`
   descriptions (and a new server-level `instructions` field) now tell the agent to use your context

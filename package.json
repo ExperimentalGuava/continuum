@@ -1,6 +1,6 @@
 {
   "name": "continuum-core",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Your whole desktop context — everything you've seen, read, typed, and heard — as a single MCP your agent can use. Open source, local-first, on-device.",
   "type": "module",
   "bin": {
