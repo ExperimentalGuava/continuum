@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/nikhilkagita04/continuum/actions/workflows/ci.yml/badge.svg)](https://github.com/nikhilkagita04/continuum/actions/workflows/ci.yml)
 
-**Your whole desktop context — everything you've seen, read, typed, and heard — as a single MCP your agent can use.**
+**Your whole desktop context — everything you've seen, read, typed, and heard — as a single MCP your agent can use to understand you and how you work.**
 
 You bounce between Claude, Slack, X, your editor, a call — a dozen apps a day — and each one starts
 blank, so *you* become the courier: re-pasting, re-explaining, rebuilding context over and over.
