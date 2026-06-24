@@ -7,6 +7,7 @@
 //   continuum start           run event-driven capture → pipeline (persists locally)
 //   continuum dashboard       open the local timeline + search at http://localhost:3939
 //   continuum mcp             run the MCP server (point Claude Desktop / agents at this)
+//   continuum preferences     review + curate how your agents work for you
 //   continuum doctor          check the environment + resolved config
 //   continuum config          print resolved config (keys redacted)
 import { spawn, execFileSync } from 'node:child_process';
@@ -17,7 +18,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, buildDeps, redacted, DATA_DIR } from '../daemon/config.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
-import { appendEpisode } from '../daemon/store.mjs';
+import { appendEpisode, loadEpisodes } from '../daemon/store.mjs';
+import { candidates, approve, dismiss, removeApproved, loadStore } from '../daemon/preferences.mjs';
 import { localEmbedder } from '../daemon/adapters.mjs';
 import { watchFiles } from '../daemon/stage1/files.mjs';
 import { runEval, formatReport } from '../daemon/eval/eval.mjs';
@@ -134,8 +136,48 @@ async function start() {
   process.on('SIGINT', async () => { await q; await p.flush(); process.exit(0); });
 }
 
+// continuum preferences — review how the agent has learned you want it to work, and curate it.
+// Nothing applies until you approve it; approved prefs ride into every agent via the MCP instructions.
+async function preferences() {
+  const sub = process.argv[3];
+  const arg = process.argv[4];
+  if (sub === 'approve' || sub === 'dismiss' || sub === 'remove') {
+    if (!arg) { console.log(`usage: continuum preferences ${sub} <number|id>`); return; }
+    if (sub === 'remove') {
+      const active = loadStore().approved;
+      const p = /^\d+$/.test(arg) ? active[+arg - 1] : active.find((x) => x.id === arg);
+      if (!p) { console.log('no such active preference.'); return; }
+      removeApproved(p.id); console.log(`✓ removed: ${p.text}`);
+      return;
+    }
+    const { llm } = buildDeps();
+    const cands = await candidates(loadEpisodes(), { llm });
+    const p = /^\d+$/.test(arg) ? cands[+arg - 1] : cands.find((x) => x.id === arg);
+    if (!p) { console.log('no such suggestion — run `continuum preferences` to see the numbered list.'); return; }
+    if (sub === 'approve') { approve(p); console.log(`✓ approved — your agents will apply this:\n  ${p.text}`); }
+    else { dismiss(p.id); console.log(`✓ dismissed: ${p.text}`); }
+    return;
+  }
+  // default: list active + suggested
+  const { llm } = buildDeps();
+  const active = loadStore().approved;
+  const cands = await candidates(loadEpisodes(), { llm });
+  console.log('continuum preferences — how your agents work for you\n');
+  console.log('Active (applied by default in every agent session):');
+  if (active.length) active.forEach((p, i) => console.log(`  ${i + 1}. ${p.text}  ·  ${p.kind}`));
+  else console.log('  (none yet — approve a suggestion below)');
+  console.log('\nSuggested (learned from your activity — nothing applies until you approve):');
+  if (cands.length) cands.forEach((p, i) => console.log(`  ${i + 1}. ${p.text}  ·  ${p.kind} · ${Math.round(p.confidence * 100)}% · ${p.source}`));
+  else console.log('  (nothing new — keep working, or curate in the dashboard)');
+  console.log('\n  continuum preferences approve <number>    apply a suggestion');
+  console.log('  continuum preferences dismiss <number>    hide a suggestion');
+  console.log('  continuum preferences remove  <number>    stop applying an active one');
+  console.log('  (or curate visually in the dashboard → Preferences)');
+}
+
 switch (cmd) {
   case 'verify': await verify(); break;
+  case 'preferences': case 'prefs': await preferences(); break;
   case 'doctor': doctor(); break;
   case 'config': console.log(JSON.stringify(redacted(), null, 2)); break;
   case 'eval': console.log(formatReport(await runEval())); break;       // capture/perception quality over local fixtures
@@ -161,5 +203,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('continuum <verify|start|dashboard|mcp-install|doctor|config|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  doctor        environment check\n  config        resolved config\n  eval          capture/perception quality over local fixtures');
+    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  eval          capture/perception quality over local fixtures');
 }

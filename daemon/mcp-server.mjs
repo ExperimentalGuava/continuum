@@ -10,6 +10,7 @@ import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR } from './config.mjs';
 import { loadIndex, loadEpisodes, STORE_FILE } from './store.mjs';
 import { recall, catchUp, profile, snapshot } from './mcp.mjs';
+import { instructionsBlock } from './preferences.mjs';
 
 const { embed, llm } = buildDeps();
 const AUDIT = path.join(DATA_DIR, 'mcp-queries.log');
@@ -80,7 +81,8 @@ async function handle(req) {
       const { episodes: eps } = await ready();
       const { exclude } = scope();
       const snap = snapshot(eps, { exclude });
-      const instructions = INSTRUCTIONS_BASE + (snap ? `\n\n${snap}` : '');
+      const prefs = instructionsBlock();                       // approved standing preferences, applied by default
+      const instructions = INSTRUCTIONS_BASE + (snap ? `\n\n${snap}` : '') + (prefs ? `\n\n${prefs}` : '');
       return { jsonrpc: '2.0', id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'continuum', version: '0.5.0' }, instructions } };
     }
     case 'tools/list':
