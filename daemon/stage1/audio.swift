@@ -31,29 +31,41 @@ final class Channel: @unchecked Sendable {
   private let recognizer = SFSpeechRecognizer()
   private var request: SFSpeechAudioBufferRecognitionRequest?
   private var task: SFSpeechRecognitionTask?
-  private var last = ""
+  private var latest = ""
+  private var lastChange = Date()
+  private var lastEmitted = ""
   init(_ speaker: String) { self.speaker = speaker }
 
   func start() {
-    guard let recognizer = recognizer, recognizer.isAvailable else { return }
+    guard let recognizer = recognizer, recognizer.isAvailable else { logErr("audio: recognizer unavailable for this locale"); return }
     let req = SFSpeechAudioBufferRecognitionRequest()
-    req.shouldReportPartialResults = false
-    if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // privacy: on-device
-    request = req
+    req.shouldReportPartialResults = true                                   // stream partials so we can detect pauses
+    if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // on-device when the locale supports it
+    request = req; latest = ""; lastChange = Date()
     task = recognizer.recognitionTask(with: req) { [weak self] result, _ in
-      guard let self = self, let result = result, result.isFinal else { return }
-      let t = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-      if t.count >= 2 && t != self.last {
-        self.last = t
-        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Meeting"
-        emitJSON(["t": nowMs(), "source": "audio", "speaker": self.speaker, "app": app, "window_id": "\(app)|call", "text": t])
-      }
-      self.start()   // next utterance; previous audio is dropped (transcribe-then-delete)
+      guard let self = self, let result = result else { return }
+      let t = result.bestTranscription.formattedString
+      if t != self.latest { self.latest = t; self.lastChange = Date() }
+      if result.isFinal { self.flush(); self.restart() }
     }
   }
   func append(_ buf: AVAudioPCMBuffer) { request?.append(buf) }
   func append(_ sb: CMSampleBuffer) { request?.appendAudioSampleBuffer(sb) }
-  func stop() { request?.endAudio(); task?.cancel(); request = nil; task = nil }
+
+  // Driven by the recorder's timer: when the transcript has been stable for ~1.2s (a pause = end of
+  // an utterance), emit it and start a fresh request — forcing utterance boundaries instead of
+  // waiting for SFSpeech's own (often-never) isFinal on a continuous stream.
+  func tickFlush() { if !latest.isEmpty && Date().timeIntervalSince(lastChange) > 1.2 { flush(); restart() } }
+  private func flush() {
+    let t = latest.trimmingCharacters(in: .whitespacesAndNewlines)
+    if t.count >= 2 && t != lastEmitted {
+      lastEmitted = t
+      let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Meeting"
+      emitJSON(["t": nowMs(), "source": "audio", "speaker": speaker, "app": app, "window_id": "\(app)|call", "text": t])
+    }
+  }
+  private func restart() { request?.endAudio(); task?.cancel(); request = nil; task = nil; start() }
+  func stop() { request?.endAudio(); task?.cancel(); request = nil; task = nil; latest = "" }
 }
 
 // System-audio tap (the "them" side) via ScreenCaptureKit — no virtual audio device required.
@@ -118,6 +130,8 @@ final class Recorder: @unchecked Sendable {
       active = false
       logErr("⏹ audio: stopped (left meeting)")
       mic.stop(); sys.stop(); you.stop(); them.stop()
+    } else if active {
+      you.tickFlush(); them.tickFlush()   // emit utterances on speech pauses
     }
   }
 }
