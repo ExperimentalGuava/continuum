@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang=en data-theme=light>
+<head>
+<meta charset=utf8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Continuum</title>
+<style>
+:root{
+  --bg:#fbfbfd; --fg:#1d1d1f; --sec:#86868b; --faint:#aeaeb2;
+  --line:#e7e7ea; --fill:#f1f1f4; --fill2:#ececef; --card:#ffffff;
+  --accent:#0071e3; --bar:#c9c9ce; --bar-top:#1d1d1f;
+  --shadow:0 1px 3px rgba(0,0,0,.04),0 8px 30px rgba(0,0,0,.045);
+}
+[data-theme=dark]{
+  --bg:#0a0a0b; --fg:#f5f5f7; --sec:#9a9aa0; --faint:#636367;
+  --line:#1f1f22; --fill:#161618; --fill2:#1c1c1f; --card:#161618;
+  --accent:#0a84ff; --bar:#3a3a3d; --bar-top:#f5f5f7;
+  --shadow:0 1px 3px rgba(0,0,0,.3),0 12px 40px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font:17px/1.5 -apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--fg);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+svg{display:block}
+.top{
+  max-width:600px;margin:0 auto;padding:26px 24px 0;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.brand{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:600;letter-spacing:-.01em}
+.brand .mark{width:22px;height:22px;color:var(--fg)}
+.tools{display:flex;align-items:center;gap:4px}
+.ico{
+  width:36px;height:36px;border-radius:50%;border:none;background:none;color:var(--sec);
+  display:grid;place-items:center;cursor:pointer;transition:.15s;
+}
+.ico:hover{background:var(--fill);color:var(--fg)}
+.ico svg{width:19px;height:19px}
+
+main{max-width:600px;margin:0 auto;padding:0 24px 80px}
+.eyebrow{margin-top:52px;font-size:12px;font-weight:640;letter-spacing:.07em;color:var(--sec);text-transform:uppercase}
+.hi{margin-top:8px;font-size:30px;font-weight:620;letter-spacing:-.027em;line-height:1.1}
+
+.ask{
+  margin-top:26px;display:flex;align-items:center;gap:12px;
+  height:56px;padding:0 18px;border-radius:16px;
+  background:var(--fill);border:1px solid transparent;cursor:text;transition:.18s;
+}
+.ask:hover{background:var(--fill2)}
+.ask:focus-within{background:var(--card);border-color:var(--line);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 14%,transparent)}
+.ask svg{width:20px;height:20px;color:var(--faint);flex:none}
+.ask input{flex:1;border:none;background:none;outline:none;font:inherit;font-size:17px;color:var(--fg)}
+.ask input::placeholder{color:var(--faint)}
+.hintk{font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:7px;padding:3px 7px;font-weight:560}
+
+.seclabel{margin:46px 2px 14px;font-size:13px;font-weight:640;letter-spacing:.04em;color:var(--sec);text-transform:uppercase}
+
+.summary{font-size:21px;line-height:1.42;font-weight:480;letter-spacing:-.015em;color:var(--fg)}
+.summary b{font-weight:620}
+.summary .dim{color:var(--sec)}
+
+.where{margin-top:30px;display:flex;flex-direction:column;gap:15px}
+.brow{display:flex;align-items:center;gap:16px}
+.brow .nm{width:96px;font-size:15px;color:var(--fg)}
+.brow .track{flex:1;height:6px;background:var(--fill2);border-radius:99px;overflow:hidden}
+.brow .fill{display:block;height:100%;background:var(--bar);border-radius:99px}
+.brow:first-child .fill{background:var(--bar-top)}
+.brow .v{width:48px;text-align:right;font-size:14px;color:var(--sec);font-variant-numeric:tabular-nums}
+
+.rows{margin-top:6px}
+.moment{
+  width:100%;text-align:left;background:none;border:none;cursor:pointer;font:inherit;
+  display:flex;align-items:center;gap:14px;padding:17px 2px;border-top:1px solid var(--line);transition:.12s;
+}
+.rows .moment:first-child{border-top:none}
+.moment:hover{padding-left:8px;padding-right:0}
+.moment .body{flex:1;min-width:0}
+.moment .mt{font-size:16px;color:var(--fg);letter-spacing:-.01em}
+.moment .mm{margin-top:3px;font-size:13px;color:var(--sec)}
+.moment .chev{width:18px;height:18px;color:var(--faint);flex:none}
+.tag{font-size:11px;font-weight:560;color:var(--sec);background:var(--fill);border-radius:6px;padding:3px 8px;white-space:nowrap}
+
+.foot{margin-top:54px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;color:var(--faint)}
+.foot svg{width:14px;height:14px}
+
+/* simple slide-in menu sheet */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:.2s;z-index:40}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{
+  position:fixed;top:14px;right:14px;width:240px;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;box-shadow:var(--shadow);padding:8px;z-index:50;
+  transform:translateY(-8px) scale(.98);opacity:0;pointer-events:none;transition:.18s;transform-origin:top right;
+}
+.sheet.on{transform:none;opacity:1;pointer-events:auto}
+.mi{width:100%;display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px;background:none;border:none;cursor:pointer;font:inherit;font-size:15px;color:var(--fg);transition:.12s}
+.mi:hover{background:var(--fill)}
+.mi svg{width:18px;height:18px;color:var(--sec)}
+.mi .sub{margin-left:auto;font-size:12px;color:var(--faint)}
+.sheet .div{height:1px;background:var(--line);margin:6px 8px}
+</style>
+</head>
+<body>
+<div class=top>
+  <div class=brand>
+    <svg class=mark viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round><path d="M3 12c2.5-5 6-5 9 0s6.5 5 9 0"/><path d="M3 12c2.5 5 6 5 9 0s6.5-5 9 0" opacity=".45"/></svg>
+    Continuum
+  </div>
+  <div class=tools>
+    <button class=ico id=theme aria-label=Appearance><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+    <button class=ico id=menu aria-label=Menu><svg viewBox="0 0 24 24" fill=currentColor><circle cx=5 cy=12 r=1.7/><circle cx=12 cy=12 r=1.7/><circle cx=19 cy=12 r=1.7/></svg></button>
+  </div>
+</div>
+
+<main>
+  <div class=eyebrow>Tuesday, June 24</div>
+  <h1 class=hi>Good evening, Nikhil.</h1>
+
+  <label class=ask>
+    <svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><circle cx=11 cy=11 r=7/><path d="m21 21-4.3-4.3"/></svg>
+    <input placeholder="Ask your memory anything" autofocus>
+    <span class=hintk>&#8984;K</span>
+  </label>
+
+  <div class=seclabel>Today</div>
+  <div class=summary>You spent <b>2h 51m</b> in focused work &mdash; mostly building Continuum, <span class=dim>with a dive into temporal knowledge graphs and a bit of launch planning.</span></div>
+
+  <div class=where>
+    <div class=brow><span class=nm>Code</span><span class=track><span class=fill style="width:100%"></span></span><span class=v>41m</span></div>
+    <div class=brow><span class=nm>Chrome</span><span class=track><span class=fill style="width:49%"></span></span><span class=v>20m</span></div>
+    <div class=brow><span class=nm>Slack</span><span class=track><span class=fill style="width:27%"></span></span><span class=v>11m</span></div>
+  </div>
+
+  <div class=seclabel>Worth remembering</div>
+  <div class=rows>
+    <button class=moment>
+      <div class=body>
+        <div class=mt>Decided to ship the dashboard before the graph view.</div>
+        <div class=mm>Slack &middot; 11:20 PM</div>
+      </div>
+      <span class=tag>decision</span>
+      <svg class=chev viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><path d="m9 6 6 6-6 6"/></svg>
+    </button>
+    <button class=moment>
+      <div class=body>
+        <div class=mt>Drafted an email to a Stanford professor &mdash; not sent yet.</div>
+        <div class=mm>Mail &middot; 7:48 PM</div>
+      </div>
+      <span class=tag>open loop</span>
+      <svg class=chev viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><path d="m9 6 6 6-6 6"/></svg>
+    </button>
+  </div>
+
+  <div class=foot>
+    <svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><rect x=4 y=11 width=16 height=10 rx=2.2/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    Everything stays on this Mac.
+  </div>
+</main>
+
+<div class=scrim id=scrim></div>
+<div class=sheet id=sheet>
+  <button class=mi><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r=9/><path d="M12 7v5l3 2"/></svg>Timeline<span class=sub>all moments</span></button>
+  <button class=mi><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Privacy &amp; data</button>
+  <div class=div></div>
+  <button class=mi><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg>Connect to Claude<span class=sub>MCP</span></button>
+</div>
+
+<script>
+var root=document.documentElement;
+document.getElementById('theme').onclick=function(){root.dataset.theme=root.dataset.theme==='dark'?'light':'dark';};
+var sheet=document.getElementById('sheet'),scrim=document.getElementById('scrim');
+function close(){sheet.classList.remove('on');scrim.classList.remove('on');}
+document.getElementById('menu').onclick=function(e){e.stopPropagation();sheet.classList.toggle('on');scrim.classList.toggle('on');};
+scrim.onclick=close;document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+</script>
+</body>
+</html>

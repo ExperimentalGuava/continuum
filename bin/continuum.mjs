@@ -99,8 +99,9 @@ async function start() {
 
   // Serialize ingests — the segmenter's state isn't concurrency-safe, and we feed it from
   // multiple sources (screen capture + file watcher).
+  const PAUSE = path.join(DATA_DIR, 'paused');   // the dashboard Control toggle drops/removes this file
   let q = Promise.resolve();
-  const ingest = (ev) => { q = q.then(() => p.ingest(ev)).catch(() => {}); };
+  const ingest = (ev) => { if (fs.existsSync(PAUSE)) return; q = q.then(() => p.ingest(ev)).catch(() => {}); };
   const onLine = (line) => { const s = line.trim(); if (!s) return; try { ingest(JSON.parse(s)); } catch { /* skip bad line */ } };
 
   if (process.argv.includes('--stdin')) {
@@ -108,7 +109,8 @@ async function start() {
   } else {
     const bin = ensureHelper(source);   // builds on first run if needed
     if (!bin) return;                   // ensureHelper printed why
-    const child = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const env = { ...process.env, CONTINUUM_EXCLUDE: [process.env.CONTINUUM_EXCLUDE, ...cfg.capture.exclude].filter(Boolean).join(',') };
+    const child = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
     createInterface({ input: child.stdout }).on('line', onLine);
   }
 

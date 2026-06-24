@@ -18,11 +18,17 @@ import {
 } from './adapters.mjs';
 
 export const DATA_DIR = process.env.CONTINUUM_DATA || path.join(os.homedir(), '.continuum');
-const CFG_PATH = path.join(DATA_DIR, 'config.json');
+export const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
+const CFG_PATH = CONFIG_PATH;
+
+// Raw file read/write (no env overlay, no defaults) — for the dashboard Control panel to
+// persist user choices (exclusions, etc.) without clobbering other settings or leaking keys.
+export function readRawConfig() { try { return JSON.parse(fs.readFileSync(CFG_PATH, 'utf8')); } catch { return {}; } }
+export function writeRawConfig(obj) { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(CFG_PATH, JSON.stringify(obj, null, 2) + '\n'); }
 
 const DEFAULTS = {
   tier: 'free',
-  capture:    { source: 'screen' },                  // screen (OCR, universal) | ax (accessibility, native apps)
+  capture:    { source: 'screen', exclude: [] },     // screen (OCR, universal) | ax (accessibility, native apps); exclude = apps to never capture
   files:      { watch: [] },                          // dirs to capture writes from, e.g. ["~/Documents", "~/code"]
   embeddings: { provider: 'local', model: '' },     // local | ollama | openai | api
   llm:        { provider: 'none',  model: '' },      // none | ollama | openai | anthropic

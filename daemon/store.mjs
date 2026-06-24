@@ -23,3 +23,11 @@ export async function loadIndex(embed) {
   for (const ep of loadEpisodes()) await idx.add(ep);
   return idx;
 }
+
+// Rewrite the store keeping only episodes for which keepFn is true. Returns # remaining.
+// Used by the dashboard's delete / clear controls (the trust center).
+export function rewriteEpisodes(keepFn) {
+  const kept = loadEpisodes().filter(keepFn);
+  fs.writeFileSync(STORE_FILE, kept.map((e) => JSON.stringify(e)).join('\n') + (kept.length ? '\n' : ''));
+  return kept.length;
+}
