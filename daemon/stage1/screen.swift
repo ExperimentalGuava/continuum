@@ -27,6 +27,15 @@ let EXCLUDED: Set<String> = {
 // so it never captures itself. Matched on distinctive on-screen text.
 let SELF_MARKERS = ["What your machine captured", "continuum: tier=", "capture=screen embed="]
 
+// Browsers prefix every page with their tab/bookmark bar — crop the top band before OCR so
+// episodes start with the page content, not the chrome. (CGImage cropping origin is top-left.)
+let BROWSERS: Set<String> = ["Google Chrome", "Safari", "Arc", "Firefox", "Microsoft Edge", "Brave Browser", "Opera"]
+func cropTopBand(_ image: CGImage, fraction: Double) -> CGImage {
+  let band = Int(Double(image.height) * fraction)
+  let rect = CGRect(x: 0, y: band, width: image.width, height: image.height - band)
+  return image.cropping(to: rect) ?? image
+}
+
 func nowMs() -> Int { Int(Date().timeIntervalSince1970 * 1000) }
 func emit(_ obj: [String: Any]) {
   guard let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) else { return }
@@ -51,7 +60,8 @@ func captureFocusedWindow() async -> (CGImage, String, String)? {
   cfg.height = Int(window.frame.height * 2)
   cfg.showsCursor = false
   guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg) else { return nil }
-  return (img, appName, title)
+  let out = BROWSERS.contains(appName) ? cropTopBand(img, fraction: 0.12) : img   // drop tab/bookmark bar
+  return (out, appName, title)
 }
 
 // Average-hash (8×8 grayscale) for cheap "did the screen change?" detection.
