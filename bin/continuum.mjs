@@ -20,6 +20,7 @@ import { Pipeline } from '../daemon/pipeline.mjs';
 import { appendEpisode } from '../daemon/store.mjs';
 import { localEmbedder } from '../daemon/adapters.mjs';
 import { watchFiles } from '../daemon/stage1/files.mjs';
+import { runEval, formatReport } from '../daemon/eval/eval.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STAGE1 = path.join(HERE, '..', 'daemon', 'stage1');
@@ -123,6 +124,7 @@ switch (cmd) {
   case 'verify': await verify(); break;
   case 'doctor': doctor(); break;
   case 'config': console.log(JSON.stringify(redacted(), null, 2)); break;
+  case 'eval': console.log(formatReport(await runEval())); break;       // capture/perception quality over local fixtures
   case 'start': await start(); break;
   case 'dashboard': await import('../daemon/dashboard.mjs'); break;
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
