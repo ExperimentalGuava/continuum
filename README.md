@@ -87,6 +87,10 @@ open layer you build on:
   (captured only when it meaningfully changes, with repeated chrome de-duplicated so episodes are
   content not noise), plus optional on-device meeting transcription (mic + system audio,
   speaker-attributed, transcribe-then-delete) fused with what's on screen.
+- **Learns how you want your agent to work** — the standing instructions you'd otherwise repeat
+  every session ("be concise", "run the tests before the PR", "do lightweight research and cite
+  sources"). You approve them (in the dashboard or `continuum preferences`); they're then applied to
+  every agent automatically over MCP. Extracted free with no model; richer with one.
 - **Local-first** — everything lives in `~/.continuum`; credential managers are excluded and
   PII is redacted; nothing leaves your machine.
 - **Composable** — query it from the CLI, the SDK, or MCP, so any agent can use your memory.
@@ -96,6 +100,7 @@ open layer you build on:
 | | Free | Pro *(later)* | Enterprise *(later)* |
 |---|---|---|---|
 | Capture · recall · MCP | ✅ | ✅ | ✅ |
+| Preferences (learn your work style) | ✅ stated + auto-apply | ✅ + model-inferred | ✅ |
 | Embeddings / LLM | local, $0 | OpenAI / Anthropic | hosted |
 | Temporal knowledge graph | — | ✅ | ✅ team graph |
 
