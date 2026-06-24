@@ -25,8 +25,9 @@ Codex, or Cursor** and it installs Continuum, starts capture, and connects the M
 > Set up Continuum so you can see my desktop context: install it (`npm i -g continuum-core`), start
 > capture in the background (`continuum start &` — I'll grant Screen Recording when macOS prompts),
 > then add the Continuum MCP server to your config using the JSON from `continuum mcp-config`. From
-> then on, use the `search_context` and `recent_activity` tools on your own judgment — any time my
-> request would be better with knowledge of what I've recently been doing, not just when I ask.
+> then on, use the `search_context` and `recent_activity` tools on your own judgment to understand
+> what I'm building, how I think, and my taste — so your help fits me and my work, not only when I
+> explicitly ask about my activity.
 
 Then just ask it *"what was I doing in X?"* — that's the whole setup.
 

@@ -22,25 +22,26 @@ const TOOLS = [
   {
     name: 'search_context',
     description:
-      "Search the user's own recent on-device activity — everything they've seen, read, typed, or heard across ALL their apps (browser tabs, editor, terminal, chats, docs, calls). " +
-      "Call this proactively, on your own judgment, whenever the user's request might depend on something outside this conversation: they refer to \"that\" article / PR / error / email / person / design / doc, ask you to continue, summarize, or act on prior work, mention something they were \"just looking at\" or \"working on,\" or whenever grounding your answer in what they've actually been doing would make it more accurate or specific. " +
-      "Prefer searching here over asking the user to re-paste or re-explain context. Returns the most relevant captured moments, each tagged with the app it came from.",
-    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'what to look for, in natural language' }, k: { type: 'number', description: 'max results (default 5)' } }, required: ['query'] },
+      "Search the user's own recent on-device activity across all their apps — their projects, code, writing, reading, decisions, and conversations. " +
+      "Use it two ways: (1) to recall a specific thing they reference, and — the bigger one — (2) to understand WHO this user is so you can tailor your help to them: what they're building, how they think and write, their stack and prior choices, their taste and preferences. " +
+      "Reach for it proactively to make your answer fit THIS user's real context, project, and style — even on open-ended or generic-looking tasks where they never mentioned their activity. The better you understand them, the more useful your answer; prefer learning from their context over giving generic advice. " +
+      "Returns the most relevant captured moments, each tagged with the app it came from.",
+    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'what to look for, in natural language (a topic, a project, how they did something before, what they care about)' }, k: { type: 'number', description: 'max results (default 5)' } }, required: ['query'] },
   },
   {
     name: 'recent_activity',
     description:
-      "Get the user's most recent captured activity across their apps (newest first) — what they're working on, reading, and discussing right now. " +
-      "Call this to orient yourself before answering open-ended or context-dependent requests (\"help me with this,\" \"what should I do next,\" \"draft my standup,\" \"pick up where I left off\") where knowing the user's current focus makes your response better. Use search_context instead when you're looking for something specific.",
+      "Get the user's most recent activity across their apps (newest first) — a live snapshot of what they're building and thinking about right now. " +
+      "Call it to orient yourself in their world before responding, so your help aligns with their current project, focus, and style — not just for \"what was I doing\" questions, but any time understanding their situation would make your answer more useful and more tailored to them.",
     inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'how many (default 10)' } } },
   },
 ];
 
-// Server-level guidance (surfaced to the client/agent): when to reach for this memory at all.
+// Server-level guidance (surfaced to the client/agent): treat this as getting to know the user.
 const INSTRUCTIONS =
-  "Continuum exposes the user's own recent on-device activity — everything they've seen, read, typed, and heard across all their apps — as searchable memory. Treat it as an extension of your own context. " +
-  "Decide for yourself when consulting it would make your answer more accurate, specific, or grounded, and call these tools proactively in those cases — do NOT wait for the user to explicitly ask \"what was I doing.\" " +
-  "Whenever a request references something not present in this conversation, or would benefit from knowing what the user is currently working on, search Continuum before asking them to re-explain.";
+  "Continuum is the user's own recent activity across all their apps — a live window into what they're building, how they think and write, the decisions they've made, and their taste. " +
+  "Use it not only to recall specific things, but to genuinely understand this user and tailor your help to their real context, project, and preferences. Before giving generic advice on anything open-ended, creative, or related to their work, consult Continuum so your answer fits who they are and what they're trying to do — like a teammate who's been watching their work, not a stranger. " +
+  "Use judgment: reach for it whenever aligning to this specific person would improve the answer; you don't need it for trivial factual lookups.";
 
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n');
 const text = (id, t) => ({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: t }] } });
