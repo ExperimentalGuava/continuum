@@ -149,7 +149,7 @@ fn main() {
     let base = Duration::from_millis(1200);
     let mut idle_ticks = 0u64;
 
-    eprintln!("continuum-capture: running (OCR-first) → NDJSON CaptureEvents on stdout");
+    eprintln!("continuum-capture: running (OCR-first) -> NDJSON CaptureEvents on stdout");
 
     loop {
         let mut did_work = false;

@@ -10,19 +10,29 @@ pub struct Engine {
 }
 
 impl Engine {
-    // None if no OCR language is installed for the user's profile — on most Win10/11 installs
-    // an English pack is present; otherwise the user adds one in Settings → Language.
+    // Prefer the user's profile languages, then fall back to ANY installed OCR language — so the
+    // daemon works on corporate machines whose display language (e.g. en-AU) ships without an OCR
+    // pack even though another installed language has one. None only if no OCR language exists at all.
     pub fn new() -> Option<Engine> {
-        match OcrEngine::TryCreateFromUserProfileLanguages() {
-            Ok(inner) => Some(Engine { inner }),
-            Err(e) => {
-                eprintln!(
-                    "continuum-capture: no OCR engine for your languages ({e}). \
-                     Add an OCR-capable language pack (Settings → Time & language → Language)."
-                );
-                None
+        if let Ok(inner) = OcrEngine::TryCreateFromUserProfileLanguages() {
+            return Some(Engine { inner });
+        }
+        if let Ok(langs) = OcrEngine::AvailableRecognizerLanguages() {
+            if langs.Size().unwrap_or(0) > 0 {
+                if let Ok(lang) = langs.GetAt(0) {
+                    if let Ok(inner) = OcrEngine::TryCreateFromLanguage(&lang) {
+                        let name = lang.DisplayName().map(|h| h.to_string()).unwrap_or_default();
+                        eprintln!("continuum-capture: OCR via fallback language {name}");
+                        return Some(Engine { inner });
+                    }
+                }
             }
         }
+        eprintln!(
+            "continuum-capture: no OCR engine available. Add an OCR language pack \
+             (Settings -> Time & language -> Language -> Optional features -> Optical character recognition)."
+        );
+        None
     }
 
     pub fn run(&self, f: &Frame) -> Option<String> {
