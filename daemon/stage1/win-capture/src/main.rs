@@ -13,6 +13,7 @@
 mod capture;
 mod ocr;
 mod redact;
+mod uia;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
@@ -113,11 +114,43 @@ fn clipboard_text() -> Option<String> {
     }
 }
 
+// Per-window cache cap — bounds memory over a long session (oldest window evicted when full).
+const MAX_WINDOWS: usize = 512;
+
+// FNV-1a — a cheap content signature for the UIA text-change gate (exact change, unlike OCR's fuzzy
+// pHash). Lets us skip re-emitting a comms window whose text hasn't changed since last tick.
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() { h ^= *b as u64; h = h.wrapping_mul(0x0000_0100_0000_01b3); }
+    h
+}
+
+// Record a window's new signature, evicting the oldest window if the cache is full.
+fn touch(win: &mut HashMap<String, (u64, i64)>, order: &mut VecDeque<String>, id: &str, sig: u64) {
+    if let Some(slot) = win.get_mut(id) {
+        slot.0 = sig;
+    } else {
+        if win.len() >= MAX_WINDOWS {
+            if let Some(old) = order.pop_front() { win.remove(&old); }
+        }
+        order.push_back(id.to_string());
+        win.insert(id.to_string(), (sig, 0));
+    }
+}
+
+fn emit_text(now: i64, source: &str, app: &str, window_id: &str, title: &str, text: &str) {
+    let mut obj = serde_json::json!({ "t": now, "source": source, "app": app, "window_id": window_id, "text": text });
+    if !title.is_empty() { obj["title"] = serde_json::Value::String(title.to_string()); }
+    emit(&obj);
+}
+
 fn main() {
-    // WinRT (OCR async .get()) needs an initialized apartment on this thread.
+    // WinRT (OCR async .get()) + UIA (COM) need an initialized apartment on this thread.
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
+
+    let uia = uia::Uia::new();   // None if UIA is unavailable → pure OCR (safe degrade)
 
     let Some(engine) = ocr::Engine::new() else {
         std::process::exit(1);
@@ -142,7 +175,6 @@ fn main() {
     // limit. value = (last screen hash, last emit time ms); the oldest window is evicted when full.
     let mut win: HashMap<String, (u64, i64)> = HashMap::new();
     let mut order: VecDeque<String> = VecDeque::new();
-    const MAX_WINDOWS: usize = 512;
     let mut clip_seq = unsafe { GetClipboardSequenceNumber() };
     let mut last_clip = String::new();
 
@@ -154,7 +186,7 @@ fn main() {
     loop {
         let mut did_work = false;
 
-        // --- focused-window OCR ---
+        // --- focused-window capture: UIA clean text first, OCR fallback ---
         let hwnd = unsafe { GetForegroundWindow() };
         if !hwnd.0.is_null() {
             let app = app_name(hwnd);
@@ -165,41 +197,48 @@ fn main() {
                 || app.to_lowercase() == self_app
                 || excludes.iter().any(|e| hay.contains(e));
             if !skip {
-                if let Some(frame) = capture::capture(hwnd) {
-                    let window_id = format!("{app}|{title}");
-                    let h = capture::dhash(&frame);
-                    // architecture: pHash Hamming < 5 == "same screen" → skip OCR
-                    let changed = win
-                        .get(&window_id)
-                        .map_or(true, |&(prev, _)| capture::hamming(prev, h) >= 5);
-                    if changed {
-                        // upsert this window's hash, evicting the oldest window when the cache is full
-                        if let Some(slot) = win.get_mut(&window_id) {
-                            slot.0 = h;
-                        } else {
-                            if win.len() >= MAX_WINDOWS {
-                                if let Some(old) = order.pop_front() { win.remove(&old); }
-                            }
-                            order.push_back(window_id.clone());
-                            win.insert(window_id.clone(), (h, 0));
-                        }
-                        if let Some(text) = engine.run(&frame) {
-                            let text = redact::redact(&text);
-                            let t = text.trim();
+                let window_id = format!("{app}|{title}");
+                let mut handled = false;
+
+                // 1) UIA — the clean structured text (email body, chat, ticket). Primary where it
+                //    works; the content OCR can't read (WebView2/RichEdit) lives here.
+                if let Some(u) = &uia {
+                    if let Some(raw) = u.text(hwnd, 6000) {
+                        handled = true;                       // UIA produced text → don't also OCR
+                        let text = redact::redact(&raw);
+                        let sig = fnv1a(&text);               // exact change gate (text, not pixels)
+                        let changed = win.get(&window_id).map_or(true, |&(prev, _)| prev != sig);
+                        if changed {
+                            touch(&mut win, &mut order, &window_id, sig);
                             let now = now_ms();
-                            // coalesce bursts + skip windows with no real content (mirrors capture.swift)
                             let recent = win.get(&window_id).is_some_and(|&(_, le)| le != 0 && now - le < 400);
-                            if t.chars().count() >= 20 && !recent {
+                            if text.chars().count() >= 20 && !recent {
                                 if let Some(slot) = win.get_mut(&window_id) { slot.1 = now; }
-                                let mut obj = serde_json::json!({
-                                    "t": now, "source": "ocr", "app": app,
-                                    "window_id": window_id, "text": t,
-                                });
-                                if !title.is_empty() {
-                                    obj["title"] = serde_json::Value::String(title);
-                                }
-                                emit(&obj);
+                                emit_text(now, "uia", &app, &window_id, &title, &text);
                                 did_work = true;
+                            }
+                        }
+                    }
+                }
+
+                // 2) OCR fallback — apps whose text UIA can't expose (or UIA unavailable).
+                if !handled {
+                    if let Some(frame) = capture::capture(hwnd) {
+                        let h = capture::dhash(&frame);
+                        // architecture: pHash Hamming < 5 == "same screen" → skip OCR
+                        let changed = win.get(&window_id).map_or(true, |&(prev, _)| capture::hamming(prev, h) >= 5);
+                        if changed {
+                            touch(&mut win, &mut order, &window_id, h);
+                            if let Some(raw) = engine.run(&frame) {
+                                let text = redact::redact(&raw);
+                                let t = text.trim();
+                                let now = now_ms();
+                                let recent = win.get(&window_id).is_some_and(|&(_, le)| le != 0 && now - le < 400);
+                                if t.chars().count() >= 20 && !recent {
+                                    if let Some(slot) = win.get_mut(&window_id) { slot.1 = now; }
+                                    emit_text(now, "ocr", &app, &window_id, &title, t);
+                                    did_work = true;
+                                }
                             }
                         }
                     }
