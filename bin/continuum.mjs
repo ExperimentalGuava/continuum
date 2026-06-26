@@ -243,6 +243,21 @@ switch (cmd) {
     console.log(`\n  ${open.length} open · hybrid extraction (${llm ? 'local + Claude' : 'local heuristics only — add a key for the LLM pass'})`);
     break;
   }
+  case 'digest': {    // post (or print) a summary of open commitments — run on a schedule for proactive reminders
+    const cfg = loadConfig();
+    const { llm } = buildDeps(cfg);
+    const { openTasks } = await import('../daemon/stage4/tasks.mjs');
+    const { formatDigest, deliverDigest } = await import('../daemon/stage4/digest.mjs');
+    const text = formatDigest(await openTasks(loadEpisodes(), { llm }));
+    if (process.argv.includes('--print') || !cfg.digest.webhook) {
+      console.log(text);
+      if (!cfg.digest.webhook) console.error('\n(set digest.webhook in ~/.continuum/config.json to post this to Teams/Slack)');
+    } else {
+      const res = await deliverDigest(text, { webhook: cfg.digest.webhook });
+      console.log(res.ok ? '✓ digest delivered' : `✗ delivery failed: ${res.reason || res.status}`);
+    }
+    break;
+  }
   case 'dashboard': await import('../daemon/dashboard.mjs'); break;
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
   case 'mcp-install': {
@@ -264,5 +279,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  eval          capture/perception quality over local fixtures');
+    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
 }

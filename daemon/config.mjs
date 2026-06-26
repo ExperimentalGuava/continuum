@@ -37,6 +37,7 @@ const DEFAULTS = {
   keys:       { openai: '', anthropic: '' },
   mcp:        { paused: false, sinceDays: 0 },        // agent access controls: pause, or limit to a recent window (0 = all)
   retention:  { days: 7 },                            // discharge raw episodes older than this; 0 = keep all. Task-linked kept regardless.
+  digest:     { webhook: '' },                        // chat webhook (Teams/Slack) for the scheduled open-task digest; empty = print only
 };
 
 export function loadConfig() {
@@ -51,6 +52,7 @@ export function loadConfig() {
     graph: { ...DEFAULTS.graph, ...file.graph },
     mcp: { ...DEFAULTS.mcp, ...file.mcp },
     retention: { ...DEFAULTS.retention, ...file.retention },
+    digest: { ...DEFAULTS.digest, ...file.digest },
     keys: {
       openai: process.env.OPENAI_API_KEY || file.keys?.openai || '',
       anthropic: process.env.ANTHROPIC_API_KEY || file.keys?.anthropic || '',
