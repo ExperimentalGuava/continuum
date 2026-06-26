@@ -225,6 +225,20 @@ switch (cmd) {
     console.log(`continuum prune\n\n  discharged ${pruned} episode(s) older than ${days}d · ${remaining} kept`);
     break;
   }
+  case 'tasks': {     // commitments from your correspondence that you haven't closed (hybrid: heuristic + LLM)
+    const { llm } = buildDeps();
+    const { openTasks } = await import('../daemon/stage4/tasks.mjs');
+    const open = await openTasks(loadEpisodes(), { llm });
+    console.log('continuum tasks — commitments you haven\'t closed\n');
+    if (!open.length) { console.log('  (nothing open — all clear, or no correspondence captured yet)'); break; }
+    for (const t of open) {
+      const due = t.dueMs ? ` · due ${new Date(t.dueMs).toLocaleDateString()}` : '';
+      const flag = t.status === 'overdue' ? '  ⚠ OVERDUE' : '';
+      console.log(`  • ${t.text}${due}  · ${t.app}${flag}`);
+    }
+    console.log(`\n  ${open.length} open · hybrid extraction (${llm ? 'local + Claude' : 'local heuristics only — add a key for the LLM pass'})`);
+    break;
+  }
   case 'dashboard': await import('../daemon/dashboard.mjs'); break;
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
   case 'mcp-install': {
@@ -246,5 +260,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  eval          capture/perception quality over local fixtures');
+    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  eval          capture/perception quality over local fixtures');
 }
