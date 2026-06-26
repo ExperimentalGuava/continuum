@@ -14,7 +14,7 @@ mod capture;
 mod ocr;
 mod redact;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -137,8 +137,11 @@ fn main() {
         .filter(|s| !s.is_empty())
         .collect();
 
-    let mut last_hash: HashMap<String, u64> = HashMap::new(); // per-window pHash
-    let mut last_emit: HashMap<String, i64> = HashMap::new(); // per-window emit time
+    // Per-window change/emit cache, FIFO-bounded so a long-running session can't grow it without
+    // limit. value = (last screen hash, last emit time ms); the oldest window is evicted when full.
+    let mut win: HashMap<String, (u64, i64)> = HashMap::new();
+    let mut order: VecDeque<String> = VecDeque::new();
+    const MAX_WINDOWS: usize = 512;
     let mut clip_seq = unsafe { GetClipboardSequenceNumber() };
     let mut last_clip = String::new();
 
@@ -162,19 +165,28 @@ fn main() {
                     let window_id = format!("{app}|{title}");
                     let h = capture::dhash(&frame);
                     // architecture: pHash Hamming < 5 == "same screen" → skip OCR
-                    let changed = last_hash
+                    let changed = win
                         .get(&window_id)
-                        .map_or(true, |prev| capture::hamming(*prev, h) >= 5);
+                        .map_or(true, |&(prev, _)| capture::hamming(prev, h) >= 5);
                     if changed {
-                        last_hash.insert(window_id.clone(), h);
+                        // upsert this window's hash, evicting the oldest window when the cache is full
+                        if let Some(slot) = win.get_mut(&window_id) {
+                            slot.0 = h;
+                        } else {
+                            if win.len() >= MAX_WINDOWS {
+                                if let Some(old) = order.pop_front() { win.remove(&old); }
+                            }
+                            order.push_back(window_id.clone());
+                            win.insert(window_id.clone(), (h, 0));
+                        }
                         if let Some(text) = engine.run(&frame) {
                             let text = redact::redact(&text);
                             let t = text.trim();
                             let now = now_ms();
                             // coalesce bursts + skip windows with no real content (mirrors capture.swift)
-                            let recent = last_emit.get(&window_id).is_some_and(|l| now - l < 400);
+                            let recent = win.get(&window_id).is_some_and(|&(_, le)| le != 0 && now - le < 400);
                             if t.chars().count() >= 20 && !recent {
-                                last_emit.insert(window_id.clone(), now);
+                                if let Some(slot) = win.get_mut(&window_id) { slot.1 = now; }
                                 let mut obj = serde_json::json!({
                                     "t": now, "source": "ocr", "app": app,
                                     "window_id": window_id, "text": t,

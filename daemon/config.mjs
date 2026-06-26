@@ -35,6 +35,7 @@ const DEFAULTS = {
   graph:      { enabled: false, url: 'http://localhost:8000', group: 'default' },
   keys:       { openai: '', anthropic: '' },
   mcp:        { paused: false, sinceDays: 0 },        // agent access controls: pause, or limit to a recent window (0 = all)
+  retention:  { days: 7 },                            // discharge raw episodes older than this; 0 = keep all. Task-linked kept regardless.
 };
 
 export function loadConfig() {
@@ -48,6 +49,7 @@ export function loadConfig() {
     llm: { ...DEFAULTS.llm, ...file.llm },
     graph: { ...DEFAULTS.graph, ...file.graph },
     mcp: { ...DEFAULTS.mcp, ...file.mcp },
+    retention: { ...DEFAULTS.retention, ...file.retention },
     keys: {
       openai: process.env.OPENAI_API_KEY || file.keys?.openai || '',
       anthropic: process.env.ANTHROPIC_API_KEY || file.keys?.anthropic || '',
