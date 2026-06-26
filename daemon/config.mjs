@@ -16,6 +16,7 @@ import {
   localEmbedder, ollamaEmbedder, openaiEmbedder, apiEmbedder,
   llmClient, ollamaLLM, graphClient,
 } from './adapters.mjs';
+import { allowPatterns } from './apps.mjs';
 
 export const DATA_DIR = process.env.CONTINUUM_DATA || path.join(os.homedir(), '.continuum');
 export const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
@@ -28,7 +29,7 @@ export function writeRawConfig(obj) { fs.mkdirSync(DATA_DIR, { recursive: true }
 
 const DEFAULTS = {
   tier: 'free',
-  capture:    { source: 'screen', exclude: [], audio: false },  // screen (OCR) | ax; exclude = apps never captured; audio = capture meetings (on-device, opt-in)
+  capture:    { source: 'screen', exclude: [], audio: false, allow: allowPatterns() },  // screen (OCR) | ax; allow = only these work apps (by name OR window title; [] = capture all); exclude = never captured; audio = meetings (opt-in)
   files:      { watch: [] },                          // dirs to capture writes from, e.g. ["~/Documents", "~/code"]
   embeddings: { provider: 'local', model: '' },     // local | ollama | openai | api
   llm:        { provider: 'none',  model: '' },      // none | ollama | openai | anthropic

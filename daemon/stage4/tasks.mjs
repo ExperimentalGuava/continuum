@@ -4,11 +4,13 @@
 // the injectable LLM is called ONLY on the hard cases (implied commitments) — the hybrid the
 // product chose (local-first, frontier model for the rest). Pure + DI, so it tests offline.
 
+import { matchesAllow, allowPatterns } from '../apps.mjs';
+
 // --- correspondence focus (drop everything that isn't where work gets promised) ---
-const COMMS_APP = /(mail|gmail|outlook|slack|discord|messages|whatsapp|telegram|teams|chat|jira|linear|asana|trello|notion|zendesk|servicenow|front|calendar)/i;
-function isCorrespondence(ep) {
+// Match the allowlist against app name + window title + url host, so browser-based work apps count.
+function isCorrespondence(ep, allow) {
   if (ep.label?.type === 'message') return true;
-  return COMMS_APP.test(ep.app || '');
+  return matchesAllow(`${ep.app || ''} ${ep.title || ep.window_title || ''} ${ep.url_host || ''}`, allow);
 }
 
 const stamp = (e) => e.end ?? e.start ?? e.t ?? 0;
@@ -119,8 +121,8 @@ function reconcileStatus(task, episodes, { now, dueMs }) {
 }
 
 // Extract every commitment from the captured episodes, with a reconciled status.
-export async function extractTasks(episodes, { llm, now = Date.now() } = {}) {
-  const comms = (episodes || []).filter(isCorrespondence);
+export async function extractTasks(episodes, { llm, now = Date.now(), allow = allowPatterns() } = {}) {
+  const comms = (episodes || []).filter((ep) => isCorrespondence(ep, allow));
   const cands = comms.flatMap(heuristicCommitments);
   if (llm) {
     const covered = new Set(cands.map((c) => c.source_id));        // local-first: LLM only on episodes

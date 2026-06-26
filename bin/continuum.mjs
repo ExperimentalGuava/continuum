@@ -151,7 +151,11 @@ async function start() {
   } else {
     const bin = ensureHelper(source);   // builds on first run if needed
     if (!bin) return;                   // ensureHelper printed why
-    const env = { ...process.env, CONTINUUM_EXCLUDE: [process.env.CONTINUUM_EXCLUDE, ...cfg.capture.exclude].filter(Boolean).join(',') };
+    const env = {
+      ...process.env,
+      CONTINUUM_EXCLUDE: [process.env.CONTINUUM_EXCLUDE, ...cfg.capture.exclude].filter(Boolean).join(','),
+      CONTINUUM_ALLOW: (cfg.capture.allow || []).join(','),   // capture only the configured work apps ([] = all)
+    };
     const child = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
     createInterface({ input: child.stdout }).on('line', onLine);
 

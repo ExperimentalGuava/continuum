@@ -129,13 +129,14 @@ fn main() {
         .unwrap_or_default()
         .to_lowercase();
 
-    // CONTINUUM_EXCLUDE: comma-separated app substrings never captured (parity with the CLI).
-    let excludes: Vec<String> = std::env::var("CONTINUUM_EXCLUDE")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect();
+    // Comma-separated substrings from the CLI. EXCLUDE = never captured. ALLOW = capture ONLY these
+    // work apps (matched against app name + window title, so browser-based Outlook/Jira/etc. count);
+    // empty ALLOW = capture everything.
+    let split_env = |k: &str| -> Vec<String> {
+        std::env::var(k).unwrap_or_default().split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect()
+    };
+    let excludes = split_env("CONTINUUM_EXCLUDE");
+    let allow = split_env("CONTINUUM_ALLOW");
 
     // Per-window change/emit cache, FIFO-bounded so a long-running session can't grow it without
     // limit. value = (last screen hash, last emit time ms); the oldest window is evicted when full.
@@ -157,11 +158,14 @@ fn main() {
         let hwnd = unsafe { GetForegroundWindow() };
         if !hwnd.0.is_null() {
             let app = app_name(hwnd);
-            let app_lc = app.to_lowercase();
-            let skip = app_lc == self_app || excludes.iter().any(|e| app_lc.contains(e));
+            let title = window_title(hwnd);
+            let hay = format!("{app} {title}").to_lowercase();   // match allow/exclude on app + title
+            let allowed = allow.is_empty() || allow.iter().any(|p| hay.contains(p));
+            let skip = !allowed
+                || app.to_lowercase() == self_app
+                || excludes.iter().any(|e| hay.contains(e));
             if !skip {
                 if let Some(frame) = capture::capture(hwnd) {
-                    let title = window_title(hwnd);
                     let window_id = format!("{app}|{title}");
                     let h = capture::dhash(&frame);
                     // architecture: pHash Hamming < 5 == "same screen" → skip OCR
