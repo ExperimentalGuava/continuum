@@ -1,0 +1,42 @@
+[package]
+name = "continuum-capture"
+version = "0.1.0"
+edition = "2021"
+description = "Continuum Stage-1 capture daemon for Windows — emits NDJSON CaptureEvents on stdout"
+license = "Apache-2.0"
+
+[[bin]]
+name = "continuum-capture"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+regex = "1"
+
+[dependencies.windows]
+version = "0.58"
+features = [
+  # Win32 — foreground window, GDI capture, process name, clipboard, COM init
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Storage_Xps",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_System_Threading",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Com",
+  # WinRT — Windows.Media.Ocr + the imaging/buffer types it needs
+  "Foundation",
+  "Foundation_Collections",
+  "Media_Ocr",
+  "Graphics_Imaging",
+  "Storage_Streams",
+  "Security_Cryptography",
+  "Globalization",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+panic = "abort"

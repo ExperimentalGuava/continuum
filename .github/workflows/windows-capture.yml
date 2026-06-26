@@ -1,0 +1,63 @@
+name: windows-capture
+
+# Builds the Windows Stage-1 capture daemon on a real Windows runner, publishes a downloadable
+# artifact on every push/PR, and attaches a signed-ready binary to GitHub Releases on a v* tag.
+# This is the first link of the corporate distribution pipeline: CI build → (sign) → package → deploy.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: daemon/stage1/win-capture
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # Static CRT => the .exe needs no VC++ redistributable on target machines.
+      - name: Build (release, static CRT)
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      # --- Code-signing slots in HERE, once an Authenticode cert is in org/repo secrets. ---
+      # - name: Code-sign
+      #   shell: pwsh
+      #   run: |
+      #     $exe = "target/x86_64-pc-windows-msvc/release/continuum-capture.exe"
+      #     $pfx = "$env:RUNNER_TEMP/cert.pfx"
+      #     [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String("${{ secrets.CODESIGN_PFX_B64 }}"))
+      #     & signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+      #       /f $pfx /p "${{ secrets.CODESIGN_PASSWORD }}" $exe
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $exe = "target/x86_64-pc-windows-msvc/release/continuum-capture.exe"
+          (Get-FileHash $exe -Algorithm SHA256).Hash | Tee-Object -FilePath "$exe.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuum-capture-windows-x64
+          path: |
+            daemon/stage1/win-capture/target/x86_64-pc-windows-msvc/release/continuum-capture.exe
+            daemon/stage1/win-capture/target/x86_64-pc-windows-msvc/release/continuum-capture.exe.sha256
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            daemon/stage1/win-capture/target/x86_64-pc-windows-msvc/release/continuum-capture.exe
+            daemon/stage1/win-capture/target/x86_64-pc-windows-msvc/release/continuum-capture.exe.sha256

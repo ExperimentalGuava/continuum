@@ -29,17 +29,38 @@ const STAGE1 = path.join(HERE, '..', 'daemon', 'stage1');
 const cmd = process.argv[2] || 'help';
 
 const hasSwiftc = () => { try { execFileSync('swiftc', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } };
+const hasCargo = () => { try { execFileSync('cargo', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } };
+
+// Windows capture helper — the Rust OCR daemon (daemon/stage1/win-capture). Same drop-in NDJSON
+// contract as the Swift helper; built on first use via cargo, mirroring the swiftc path below.
+// 'screen' and 'ax' both map to it for now (the OCR daemon is the universal path; a UIA-based
+// accelerator is a later addition). Audio capture isn't available on Windows yet.
+function ensureWinHelper(name) {
+  if (name === 'audio') { console.error('Audio capture is not available on Windows yet.'); return null; }
+  const exe = 'continuum-capture.exe';
+  const crate = path.join(STAGE1, 'win-capture');
+  const built = path.join(crate, 'target', 'release', exe);     // dev/clone: cargo's output dir
+  if (fs.existsSync(built)) return built;
+  const userBin = path.join(DATA_DIR, 'bin', exe);
+  if (fs.existsSync(userBin)) return userBin;                    // shipped/copied prebuilt binary
+  if (!fs.existsSync(path.join(crate, 'Cargo.toml'))) { console.error(`Windows capture source missing: ${crate}`); return null; }
+  if (!hasCargo()) { console.error('Windows capture needs Rust. Install from https://rustup.rs, then run `continuum start` again.'); return null; }
+  console.error('building the Windows capture daemon (first run, ~1–2 min)…');
+  try { execFileSync('cargo', ['build', '--release'], { cwd: crate, stdio: 'inherit' }); return built; }
+  catch { console.error('build failed — ensure Rust is installed (https://rustup.rs) and try again.'); return null; }
+}
 
 // Resolve a native capture helper ('screen' | 'capture'), building it on first use. The npm
-// package ships only the .swift source (binaries are platform-specific + unsigned), so we
-// compile into ~/.continuum/bin/ — user-writable, no touching global node_modules.
+// package ships only source (binaries are platform-specific + unsigned), so we compile into
+// the crate's target/ or ~/.continuum/bin/ — user-writable, no touching global node_modules.
 function ensureHelper(name) {
+  if (process.platform === 'win32') return ensureWinHelper(name);
   const inPlace = path.join(STAGE1, name);                       // dev/clone: built next to source
   if (fs.existsSync(inPlace)) return inPlace;
   const userBin = path.join(DATA_DIR, 'bin', name);
   if (fs.existsSync(userBin)) return userBin;                    // previously auto-built
   const src = path.join(STAGE1, `${name}.swift`);
-  if (process.platform !== 'darwin') { console.error('Native capture is macOS-only for now.'); return null; }
+  if (process.platform !== 'darwin') { console.error('Native capture is supported on macOS and Windows.'); return null; }
   if (!fs.existsSync(src)) { console.error(`capture source missing: ${src}`); return null; }
   if (!hasSwiftc()) { console.error('Screen capture needs Swift. Install Xcode Command Line Tools:\n  xcode-select --install\nthen run `continuum start` again.'); return null; }
   fs.mkdirSync(path.join(DATA_DIR, 'bin'), { recursive: true });
@@ -54,8 +75,14 @@ function doctor() {
   console.log('continuum doctor\n');
   console.log(`  node            ${process.version}`);
   console.log(`  capture source  ${cfg.capture.source}`);
-  const builtHelper = has(path.join(STAGE1, cfg.capture.source)) || has(path.join(DATA_DIR, 'bin', cfg.capture.source));
-  console.log(`  capture helper  ${builtHelper ? '✓ built' : hasSwiftc() ? '○ builds on first `continuum start`' : '✗ needs Swift — run: xcode-select --install'}`);
+  if (process.platform === 'win32') {
+    const exe = path.join(STAGE1, 'win-capture', 'target', 'release', 'continuum-capture.exe');
+    const builtHelper = has(exe) || has(path.join(DATA_DIR, 'bin', 'continuum-capture.exe'));
+    console.log(`  capture helper  ${builtHelper ? '✓ built' : hasCargo() ? '○ builds on first `continuum start`' : '✗ needs Rust — install from https://rustup.rs'}`);
+  } else {
+    const builtHelper = has(path.join(STAGE1, cfg.capture.source)) || has(path.join(DATA_DIR, 'bin', cfg.capture.source));
+    console.log(`  capture helper  ${builtHelper ? '✓ built' : hasSwiftc() ? '○ builds on first `continuum start`' : '✗ needs Swift — run: xcode-select --install'}`);
+  }
   console.log(`  files watched   ${cfg.files.watch.length ? cfg.files.watch.join(', ') : '(none — set files.watch in config)'}`);
   console.log(`  data dir        ${DATA_DIR} ${has(DATA_DIR) ? '✓' : '(created on first run)'}`);
   console.log(`  tier            ${cfg.tier}`);
