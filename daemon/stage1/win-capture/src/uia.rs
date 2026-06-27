@@ -27,14 +27,28 @@ impl Uia {
         Some(Uia { auto })
     }
 
-    // Meaningful text from the focused window's UIA subtree (whole-control text via TextPattern where
-    // available, else element Name/Value), skipping UI chrome. None if too sparse for an episode.
+    // Meaningful text from the focused window. Prefer the FOCUSED element's subtree — the email body /
+    // compose box / chat input the user is actually engaging with — over the whole window (folder
+    // pane, ribbon, every inbox row). Biggest signal-per-effort win, and app-agnostic: the user's
+    // focus IS the useful region. Falls back to the full window when focus lands on something too
+    // small to be useful (e.g. just scrolling a list). None if too sparse for an episode.
     pub fn text(&self, hwnd: HWND, budget: isize) -> Option<String> {
+        if let Ok(focused) = unsafe { self.auto.GetFocusedElement() } {
+            if let Some(t) = self.gather(&focused, budget) {
+                if t.chars().count() >= 40 {
+                    return Some(t);
+                }
+            }
+        }
         let root = unsafe { self.auto.ElementFromHandle(hwnd) }.ok()?;
+        self.gather(&root, budget)
+    }
+
+    fn gather(&self, el: &IUIAutomationElement, budget: isize) -> Option<String> {
         let mut out = String::new();
         let mut seen = HashSet::new();
         let mut remaining = budget;
-        collect(&self.auto, &root, 0, &mut remaining, &mut out, &mut seen);
+        collect(&self.auto, el, 0, &mut remaining, &mut out, &mut seen);
         let t = out.trim();
         if t.chars().count() >= 20 { Some(t.to_string()) } else { None }
     }
