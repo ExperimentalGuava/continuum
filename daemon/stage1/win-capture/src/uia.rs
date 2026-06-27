@@ -34,6 +34,10 @@ impl Uia {
     // small to be useful (e.g. just scrolling a list). None if too sparse for an episode.
     pub fn text(&self, hwnd: HWND, budget: isize) -> Option<String> {
         if let Ok(focused) = unsafe { self.auto.GetFocusedElement() } {
+            // Never capture while a password / secure field has focus — don't record credentials.
+            if is_password(&focused) {
+                return None;
+            }
             if let Some(t) = self.gather(&focused, budget) {
                 if t.chars().count() >= 40 {
                     return Some(t);
@@ -57,6 +61,10 @@ impl Uia {
 // Chrome control types whose labels are noise (buttons, menus, toolbars, tabs, scrollbars, images,
 // title/status furniture). We still DESCEND into them — a toolbar may wrap real content — but don't
 // collect their own Name/Value. Mirrors the macOS capture.swift CHROME_ROLES approach.
+fn is_password(el: &IUIAutomationElement) -> bool {
+    unsafe { el.CurrentIsPassword() }.map(|b| b.as_bool()).unwrap_or(false)
+}
+
 fn is_chrome(ct: UIA_CONTROLTYPE_ID) -> bool {
     const CHROME: &[UIA_CONTROLTYPE_ID] = &[
         UIA_ButtonControlTypeId, UIA_MenuBarControlTypeId, UIA_MenuItemControlTypeId,
@@ -110,9 +118,9 @@ fn collect(
         }
     }
 
-    // Otherwise: this element's own Name + Value (unless it's chrome), then recurse into children.
+    // Otherwise: this element's own Name + Value (unless it's chrome or a secure field), then recurse.
     let chrome = unsafe { el.CurrentControlType() }.map(is_chrome).unwrap_or(false);
-    if !chrome {
+    if !chrome && !is_password(el) {
         if let Ok(name) = unsafe { el.CurrentName() } {
             push_text(&name.to_string(), out, seen, remaining);
         }

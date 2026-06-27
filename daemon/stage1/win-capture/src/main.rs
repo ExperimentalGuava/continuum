@@ -138,6 +138,19 @@ fn touch(win: &mut HashMap<String, (u64, i64)>, order: &mut VecDeque<String>, id
     }
 }
 
+// Login / SSO surfaces — never emit (credentials get typed here). Strong markers only, so normal
+// mail that merely says "sign in" isn't dropped. Covers username fields too (not just password ones).
+fn is_sensitive(text: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "login.microsoftonline.com", "login.live.com", "officeapps.live.com/odc",
+        "accounts.google.com", "okta.com", "duosecurity.com", "auth0.com",
+        "no account? create one", "keep me signed in", "stay signed in",
+        "enter password", "forgot password", "use a security key",
+    ];
+    let h = text.to_lowercase();
+    MARKERS.iter().any(|m| h.contains(m))
+}
+
 fn emit_text(now: i64, source: &str, app: &str, window_id: &str, title: &str, text: &str) {
     let mut obj = serde_json::json!({ "t": now, "source": source, "app": app, "window_id": window_id, "text": text });
     if !title.is_empty() { obj["title"] = serde_json::Value::String(title.to_string()); }
@@ -208,7 +221,7 @@ fn main() {
                         let text = redact::redact(&raw);
                         let sig = fnv1a(&text);               // exact change gate (text, not pixels)
                         let changed = win.get(&window_id).map_or(true, |&(prev, _)| prev != sig);
-                        if changed {
+                        if changed && !is_sensitive(&text) {
                             touch(&mut win, &mut order, &window_id, sig);
                             let now = now_ms();
                             let recent = win.get(&window_id).is_some_and(|&(_, le)| le != 0 && now - le < 400);
@@ -234,7 +247,7 @@ fn main() {
                                 let t = text.trim();
                                 let now = now_ms();
                                 let recent = win.get(&window_id).is_some_and(|&(_, le)| le != 0 && now - le < 400);
-                                if t.chars().count() >= 20 && !recent {
+                                if t.chars().count() >= 20 && !recent && !is_sensitive(t) {
                                     if let Some(slot) = win.get_mut(&window_id) { slot.1 = now; }
                                     emit_text(now, "ocr", &app, &window_id, &title, t);
                                     did_work = true;
