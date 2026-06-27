@@ -37,6 +37,13 @@ ok('heuristic alone misses the implied commitment', (await extractTasks(eps2, { 
 const withLlm = await extractTasks(eps2, { now: NOW, llm: mockTaskLLM });
 ok('LLM hard-case pass recovers it', withLlm.some((t) => /onboarding/.test(t.text)), `n=${withLlm.length}`);
 
+// "I need to … tomorrow" — the real Outlook-draft phrasing UIA captured
+const t2 = await extractTasks(
+  [{ id: 'x', app: 'Outlook', label: { type: 'message', owner: 'me' }, end: T, text: 'I need to work on this tomorrow.' }],
+  { now: T + 3 * DAY },
+);
+ok('catches "I need to … tomorrow" (overdue)', t2.some((x) => /work on this/.test(x.text) && x.owner === 'you' && x.status === 'overdue'), `t2=${JSON.stringify(t2.map((x) => x.status))}`);
+
 const open = await openTasks(eps, { now: NOW });
 ok('openTasks = only your unclosed commitments, overdue first',
    open.every((t) => t.owner === 'you' && t.status !== 'done') && open[0] && /pricing deck/.test(open[0].text),

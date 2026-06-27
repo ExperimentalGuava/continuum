@@ -8,7 +8,12 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-    IUIAutomationValuePattern, UIA_TextPatternId, UIA_ValuePatternId,
+    IUIAutomationValuePattern, UIA_ButtonControlTypeId, UIA_CONTROLTYPE_ID,
+    UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId, UIA_ImageControlTypeId,
+    UIA_MenuBarControlTypeId, UIA_MenuControlTypeId, UIA_MenuItemControlTypeId,
+    UIA_ScrollBarControlTypeId, UIA_SeparatorControlTypeId, UIA_SpinnerControlTypeId,
+    UIA_TabControlTypeId, UIA_TabItemControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId,
+    UIA_TitleBarControlTypeId, UIA_ToolBarControlTypeId, UIA_ValuePatternId,
 };
 
 pub struct Uia {
@@ -23,7 +28,7 @@ impl Uia {
     }
 
     // Meaningful text from the focused window's UIA subtree (whole-control text via TextPattern where
-    // available, else element Name/Value). None if too sparse to be worth an episode.
+    // available, else element Name/Value), skipping UI chrome. None if too sparse for an episode.
     pub fn text(&self, hwnd: HWND, budget: isize) -> Option<String> {
         let root = unsafe { self.auto.ElementFromHandle(hwnd) }.ok()?;
         let mut out = String::new();
@@ -35,16 +40,31 @@ impl Uia {
     }
 }
 
-// Keep only substantial strings (real prose, not 1-word UI labels), deduped — mirrors the macOS
-// capture.swift extractor.
+// Chrome control types whose labels are noise (buttons, menus, toolbars, tabs, scrollbars, images,
+// title/status furniture). We still DESCEND into them — a toolbar may wrap real content — but don't
+// collect their own Name/Value. Mirrors the macOS capture.swift CHROME_ROLES approach.
+fn is_chrome(ct: UIA_CONTROLTYPE_ID) -> bool {
+    const CHROME: &[UIA_CONTROLTYPE_ID] = &[
+        UIA_ButtonControlTypeId, UIA_MenuBarControlTypeId, UIA_MenuItemControlTypeId,
+        UIA_MenuControlTypeId, UIA_ScrollBarControlTypeId, UIA_TabControlTypeId,
+        UIA_TabItemControlTypeId, UIA_ToolBarControlTypeId, UIA_TitleBarControlTypeId,
+        UIA_SeparatorControlTypeId, UIA_ThumbControlTypeId, UIA_SpinnerControlTypeId,
+        UIA_ImageControlTypeId, UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId,
+    ];
+    CHROME.contains(&ct)
+}
+
+// Keep only substantial strings (real prose, not 1-word UI labels), deduped. Strips object-
+// replacement chars (U+FFFC, the image placeholders UIA returns) and collapses whitespace.
 fn push_text(s: &str, out: &mut String, seen: &mut HashSet<String>, remaining: &mut isize) {
-    let t = s.trim();
-    let words = t.split_whitespace().count();
+    let cleaned: String = s.chars().filter(|c| *c != '\u{FFFC}').collect();
+    let t = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let words = t.split(' ').filter(|w| !w.is_empty()).count();
     let n = t.chars().count();
-    if (words >= 3 || n >= 24) && n <= 5000 && !seen.contains(t) {
-        seen.insert(t.to_string());
+    if (words >= 3 || n >= 24) && n <= 5000 && !seen.contains(&t) {
+        seen.insert(t.clone());
         if !out.is_empty() { out.push(' '); }
-        out.push_str(t);
+        out.push_str(&t);
         *remaining -= t.len() as isize;
     }
 }
@@ -76,14 +96,17 @@ fn collect(
         }
     }
 
-    // Otherwise: this element's own Name + Value, then recurse into its children.
-    if let Ok(name) = unsafe { el.CurrentName() } {
-        push_text(&name.to_string(), out, seen, remaining);
-    }
-    if let Ok(pat) = unsafe { el.GetCurrentPattern(UIA_ValuePatternId) } {
-        if let Ok(vp) = pat.cast::<IUIAutomationValuePattern>() {
-            if let Ok(v) = unsafe { vp.CurrentValue() } {
-                push_text(&v.to_string(), out, seen, remaining);
+    // Otherwise: this element's own Name + Value (unless it's chrome), then recurse into children.
+    let chrome = unsafe { el.CurrentControlType() }.map(is_chrome).unwrap_or(false);
+    if !chrome {
+        if let Ok(name) = unsafe { el.CurrentName() } {
+            push_text(&name.to_string(), out, seen, remaining);
+        }
+        if let Ok(pat) = unsafe { el.GetCurrentPattern(UIA_ValuePatternId) } {
+            if let Ok(vp) = pat.cast::<IUIAutomationValuePattern>() {
+                if let Ok(v) = unsafe { vp.CurrentValue() } {
+                    push_text(&v.to_string(), out, seen, remaining);
+                }
             }
         }
     }

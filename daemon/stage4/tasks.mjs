@@ -52,7 +52,7 @@ const extractDue = (low) => (low.match(DUE_PHRASE) || [''])[0];
 
 // --- heuristic commitment detection (free, on-device) ---
 const SENT_SPLIT = /(?<=[.!?\n])\s+/;
-const FIRST_PERSON = /\bi'll\b|\bi will\b|\bi can\b|\bi'm going to\b|\bi am going to\b|\blet me\b/;
+const FIRST_PERSON = /\bi'll\b|\bi will\b|\bi can\b|\bi'm going to\b|\bi am going to\b|\blet me\b|\bi need to\b|\bi have to\b|\bi've got to\b|\bi must\b|\bi should\b|\bi gotta\b|\bi plan to\b/;
 const MARKER = /\baction item\b|\btodo\b|\bto-do\b|\bfollow[- ]?up\b/;
 const ASSIGNED = /\bcan you\b|\bcould you\b|\bplease\s+(review|send|update|fix|check|confirm|approve|sign off|provide|share|prepare|complete)\b|\byou (need to|should|must)\b/;
 const clean = (s) => s.replace(/\s+/g, ' ').trim().slice(0, 160);
