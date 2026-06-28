@@ -8,8 +8,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig } from './config.mjs';
+import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
 import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes } from './store.mjs';
+import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
 import { extractStated, extractInferred, activePreferences, loadStore as prefStore, approve as prefApprove, dismiss as prefDismiss, removeApproved as prefRemove } from './preferences.mjs';
 
 const { embed, llm } = buildDeps();
@@ -34,6 +35,7 @@ const card = (e) => ({
   full: e.text || '',
   authored: (e.structured && e.structured.authored) || '',
   salience: e.salience == null ? 0 : e.salience,
+  session: e.session_id || null,
 });
 
 function computeStats(eps) {
@@ -53,8 +55,7 @@ function computeStats(eps) {
 
 function mcpInstalled() {
   try {
-    const p = path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
-    const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const c = JSON.parse(fs.readFileSync(claudeConfigPath(), 'utf8'));
     return !!(c.mcpServers && c.mcpServers.continuum);
   } catch { return false; }
 }
@@ -77,6 +78,7 @@ function state() {
     apps: [...new Set(eps.map((e) => e.app || 'Unknown'))].sort(),
     sources: [...new Set(eps.flatMap((e) => e.source_mix || []))].sort(),
     mcp: { claude: mcpInstalled(), queries: recentMcpQueries() },
+    daemon: daemonState(),
     stats: computeStats(eps),
   };
 }
@@ -129,7 +131,7 @@ async function insights() {
 
 async function timeline(params) {
   const q = (params.get('q') || '').trim();
-  const app = params.get('app'); const source = params.get('source');
+  const app = params.get('app'); const source = params.get('source'); const session = params.get('session');
   let rows;
   if (q) {
     const hits = await (await freshIndex()).search(q, { k: 40 });
@@ -139,6 +141,7 @@ async function timeline(params) {
   }
   if (app) rows = rows.filter((r) => r.app === app);
   if (source) rows = rows.filter((r) => r.sources.includes(source));
+  if (session) rows = rows.filter((r) => (session === '_legacy' ? !r.session : r.session === session));
   return rows.slice(0, 200);
 }
 
@@ -191,6 +194,14 @@ function clear(scope) {
   const remaining = rewriteEpisodes(keep);
   indexedAt = -1; _insAt = -1; _candsAt = -1;
   return { removed: before - remaining, remaining };
+}
+
+// Discard one activation session: drop its episodes + the session row, then invalidate caches.
+function discard(id) {
+  if (!id) return { ok: false };
+  const removed = discardSession(id);
+  indexedAt = -1; _insAt = -1; _candsAt = -1;
+  return { ok: true, removed };
 }
 
 // ---- preferences: how the user wants their agents to work (learn → curate → auto-apply) ----
@@ -322,6 +333,9 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 .btn.solid{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 32%,var(--line))}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--faint);display:inline-block;flex:none;margin-right:7px;vertical-align:middle}
+.dot.on{background:var(--green)}
+.dot.warn{background:#d98324}
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:opacity .22s var(--ease);z-index:40}
 .scrim.on{opacity:1;pointer-events:auto}
 .sheet{position:fixed;top:16px;right:16px;width:250px;background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:8px;z-index:50;transform:translateY(-8px) scale(.97);opacity:0;pointer-events:none;transition:transform .22s var(--ease),opacity .22s var(--ease);transform-origin:top right}
@@ -358,6 +372,7 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 <div class=scrim id=scrim></div>
 <div class=sheet id=sheet>
   <button class=mi data-go=timeline><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r="9"/><path d="M12 7v5l3 2"/></svg>Timeline<span class=sub>all moments</span></button>
+  <button class=mi data-go=sessions><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><rect x=3 y=4 width=18 height=4 rx=1/><rect x=3 y=11 width=18 height=4 rx=1/><rect x=3 y=18 width=14 height=2 rx=1/></svg>Sessions<span class=sub>capture runs</span></button>
   <button class=mi data-go=preferences><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 7h9M19 7h1M4 12h1M10 12h10M4 17h6M16 17h4"/><circle cx="16" cy="7" r="2"/><circle cx="7" cy="12" r="2"/><circle cx="13" cy="17" r="2"/></svg>Preferences<span class=sub>for agents</span></button>
   <button class=mi data-go=privacy><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Privacy &amp; data</button>
   <div class=div></div>
@@ -375,7 +390,7 @@ var ICON={
 };
 var SRC={ocr:'screen',screen:'screen',input:'typed',ax:'app',file:'file',clipboard:'clip',audio:'audio'};
 var root=document.documentElement,main=document.getElementById('main');
-var S={view:'home',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null};
+var S={view:'home',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null,sessions:null,sessionDetail:null};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function clock(ms){if(!ms)return'';return new Date(ms).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 function dur(ms){var m=Math.round(ms/60000);if(m<1)return'<1m';if(m<60)return m+'m';var h=Math.floor(m/60);return h+'h '+(m%60)+'m';}
@@ -414,7 +429,7 @@ function renderInsights(){
     b.innerHTML='<div class=seclabel>Today</div>'+
       (d.summary?'<div class=summary>'+esc(d.summary)+'</div>':'<div class=muted>You were active for '+dur(d.activeMs)+' today.</div>')+
       where+rem+
-      '<div class=foot>'+ICON.lock+'Everything stays on this Mac.</div>';
+      '<div class=foot>'+ICON.lock+'Everything stays on this device.</div>';
   });
 }
 function runAsk(q){
@@ -448,20 +463,56 @@ function loadRows(){
   getJSON('/api/timeline?'+p.toString()).then(function(rows){var el=document.getElementById('rows');if(!el)return;el.innerHTML=rows.length?rows.map(function(r){return momentRow(r,'');}).join(''):'<div class=note>Nothing here yet. Run <code>continuum start</code>.</div>';});
 }
 
+/* ---------- SESSIONS: data collected per capture run ---------- */
+function fmtDay(ms){if(!ms)return'';return new Date(ms).toLocaleDateString([],{month:'short',day:'numeric'});}
+function loadSessions(){return getJSON('/api/sessions').then(function(d){S.sessions=d;if(S.view==='sessions'&&!S.sessionDetail)renderSessions();});}
+function sessionRow(s){
+  var when=s.legacy?'Before sessions':(fmtDay(s.start)+' · '+clock(s.start));
+  var dwell=s.start?dur((s.end||Date.now())-s.start):'';
+  var meta=[s.episodes+' moment'+(s.episodes===1?'':'s'),dwell,(s.apps&&s.apps.length?s.apps.slice(0,3).join(', '):'')].filter(Boolean).join(' · ');
+  return '<div class=row data-session="'+esc(s.id)+'">'+
+    '<div class=body><div class=mt>'+(s.active?'<span class="dot on"></span>':'')+esc(when)+(s.active?' <span class=tag>Recording</span>':'')+'</div>'+
+    '<div class=mm>'+esc(meta)+'</div></div>'+
+    (s.legacy?'':'<span class=tag data-discard="'+esc(s.id)+'">Discard</span>')+ICON.chev+'</div>';
+}
+function renderSessions(){
+  if(S.sessionDetail){renderSessionDetail();return;}
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Today</button>'+
+    '<div class=vh>Sessions</div><div class=vsub>Each capture run — what the daemon collected while active.</div>'+
+    '<div class=rows id=srows style="margin-top:14px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
+  if(!S.sessions){loadSessions();return;}
+  var el=document.getElementById('srows');if(!el)return;
+  el.innerHTML=S.sessions.length?S.sessions.map(sessionRow).join(''):'<div class=note>No capture runs yet. Start capture in <b>Privacy &amp; data</b>.</div>';
+}
+function renderSessionDetail(){
+  var id=S.sessionDetail,s=(S.sessions||[]).filter(function(x){return x.id===id;})[0];
+  var when=s?(s.legacy?'Before sessions':(fmtDay(s.start)+' · '+clock(s.start))):'Session';
+  main.innerHTML='<button class=back id=sback>'+ICON.back+'Sessions</button>'+
+    '<div class=vh>'+esc(when)+'</div><div class=vsub>'+(s?s.episodes+' moments captured this run.':'')+'</div>'+
+    '<div class=rows id=rows style="margin-top:14px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
+  var prm=new URLSearchParams();prm.set('session',id);
+  getJSON('/api/timeline?'+prm.toString()).then(function(rows){var el=document.getElementById('rows');if(!el)return;el.innerHTML=rows.length?rows.map(function(r){return momentRow(r,'');}).join(''):'<div class=note>No moments in this session (discarded or pruned).</div>';});
+}
+
 /* ---------- PRIVACY & DATA ---------- */
 function renderPrivacy(){
   var st=S.state;if(!st)return;
   var excl=st.exclude.length?'<div class=tags>'+st.exclude.map(function(a){return '<span class=taga>'+esc(a)+'<span class=x data-unexcl="'+esc(a)+'">'+ICON.x+'</span></span>';}).join('')+'</div>':'<p>No apps excluded — everything visible is captured.</p>';
   var opts=st.apps.filter(function(a){return st.exclude.indexOf(a)<0;}).map(function(a){return '<option value="'+esc(a)+'">'+esc(a)+'</option>';}).join('');
+  var dm=st.daemon||{running:false};
+  var dstat=dm.running?('<span class="dot on"></span>Running'+(dm.start?' since '+clock(dm.start):'')):(dm.stopping?'<span class="dot warn"></span>Stopping…':'<span class=dot></span>Stopped');
+  var dbtn=dm.running?'<button class="btn danger" id=daemon-stop>Stop capture</button>':'<button class="btn solid" id=daemon-start'+(dm.stopping?' disabled':'')+'>Start capture</button>';
   main.innerHTML='<button class=back id=back>'+ICON.back+'Today</button>'+
-    '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this Mac.</div>'+
-    '<div class=block><div class=line><span class=k>Capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
-      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused — nothing is being recorded.':'Active — capturing what you see.')+'</p></div>'+
+    '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device.</div>'+
+    '<div class=block><h3>Capture daemon</h3><p>Activate to begin a capture session; stop to end it. Each run is grouped under <b>Sessions</b>.</p>'+
+      '<div class=line><span class=k>'+dstat+'</span>'+dbtn+'</div></div>'+
+    '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
+      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused — capture is held; the session stays open.':'Live — capturing while the daemon runs. Pause holds capture without ending the session.')+'</p></div>'+
     '<div class=block><h3>Excluded apps</h3><p>Apps Continuum should never capture. Applies next time you start capture.</p>'+excl+
       '<div class=addrow><select id=exsel>'+(opts||'<option value="">(no apps yet)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
     '<div class=block><h3>Connect to Claude</h3><p>Let Claude read your memory over MCP.</p><div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
       (st.mcp.claude?'':'<p style="margin-top:13px;margin-bottom:0">Run <code>continuum mcp-install</code>, then restart Claude.</p>')+'</div>'+
-    '<div class=block><h3>What your agent asked</h3><p>Every query an agent made to your memory — all on this Mac.</p>'+
+    '<div class=block><h3>What your agent asked</h3><p>Every query an agent made to your memory — all on this device.</p>'+
       ((st.mcp.queries&&st.mcp.queries.length)?'<div>'+st.mcp.queries.map(function(q){return '<div class=line><span class=k>'+esc(q.tool)+(q.detail?': '+esc(String(q.detail).slice(0,52)):'')+'</span><span class=v>'+esc(clock(q.t))+' &middot; '+(q.results||0)+'</span></div>';}).join('')+'</div>':'<p style="color:var(--faint);margin:0">No agent queries yet.</p>')+'</div>'+
     '<div class=block><h3>Your data</h3><p>Stored only on this machine. Delete anything, anytime — it&rsquo;s gone for good.</p>'+
       '<div class=btnrow><button class=btn data-clear=lasthour>Last hour</button><button class=btn data-clear=today>Today</button><button class="btn danger" data-clear=all>Everything</button></div>'+
@@ -500,8 +551,8 @@ function renderPrefs(){
 }
 
 /* ---------- shell ---------- */
-function render(){if(S.view==='home')renderHome();else if(S.view==='timeline')renderTimeline();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
-function go(v){S.view=v;S.editPref=null;if(v==='preferences')S.prefs=null;closeMenu();render();}
+function render(){if(S.view==='home')renderHome();else if(S.view==='timeline')renderTimeline();else if(S.view==='sessions')renderSessions();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
+function go(v){S.view=v;S.editPref=null;if(v==='preferences')S.prefs=null;if(v==='sessions'){S.sessions=null;S.sessionDetail=null;}closeMenu();render();}
 function home(){S.view='home';S.result=null;S.query='';S.editPref=null;render();}
 
 /* theme: follow system unless overridden; persisted */
@@ -524,7 +575,12 @@ main.addEventListener('click',function(e){
   var del=t.closest('[data-del]');if(del){e.stopPropagation();send('/api/episode','DELETE',{hash:del.dataset.del}).then(function(){loadState();if(S.view==='timeline')loadRows();else if(S.result)renderResult();else renderInsights();});return;}
   var cite=t.closest('[data-cite]');if(cite){var el=document.getElementById('src-'+cite.dataset.cite);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('hl');setTimeout(function(){el.classList.remove('hl');},1200);}return;}
   if(t.closest('[data-home]')){home();return;}
+  if(t.closest('#sback')){S.sessionDetail=null;render();return;}
   if(t.closest('#back')){home();return;}
+  var dsc=t.closest('[data-discard]');if(dsc){e.stopPropagation();if(confirm('Discard this session’s data? This deletes its captured moments and cannot be undone.'))send('/api/sessions/discard','POST',{id:dsc.dataset.discard}).then(function(){S.sessions=null;S.sessionDetail=null;loadSessions();});return;}
+  var srow=t.closest('[data-session]');if(srow){S.sessionDetail=srow.dataset.session;renderSessionDetail();return;}
+  var dst=t.closest('#daemon-start');if(dst){send('/api/daemon/start','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
+  var dsp=t.closest('#daemon-stop');if(dsp){send('/api/daemon/stop','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
   var sw=t.closest('#pausesw');if(sw){send('/api/pause','POST',{paused:!S.state.paused}).then(function(){loadState(true);});return;}
   var ex=t.closest('#exadd');if(ex){var v=document.getElementById('exsel').value;if(v)send('/api/exclude','POST',{app:v}).then(function(){loadState(true);});return;}
   var ux=t.closest('[data-unexcl]');if(ux){send('/api/exclude','POST',{app:ux.dataset.unexcl,remove:true}).then(function(){loadState(true);});return;}
@@ -545,8 +601,10 @@ document.addEventListener('keydown',function(e){
 });
 
 function loadState(re){return getJSON('/api/state').then(function(s){S.state=s;var sub=document.getElementById('mcpsub');if(sub){sub.textContent=s.mcp.claude?'connected':'MCP';sub.className=s.mcp.claude?'sub ok':'sub';}if(re)render();});}
+/* after start/stop, poll a bit faster so the status indicator flips as daemon.json appears/clears */
+function bumpPoll(){var n=0;var iv=setInterval(function(){loadState(S.view==='privacy');if(++n>=6)clearInterval(iv);},1500);}
 loadState().then(render);
-setInterval(function(){loadState(false);if(S.view==='timeline'&&!S.facet.q)loadRows();},10000);
+setInterval(function(){loadState(false);if(S.view==='timeline'&&!S.facet.q)loadRows();else if(S.view==='sessions'&&!S.sessionDetail)loadSessions();},10000);
 </script>
 </body></html>`;
 
@@ -560,6 +618,11 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/ask' && req.method === 'POST') return json(res, await ask((await body(req)).query || ''));
     if (p === '/api/exclude' && req.method === 'POST') { const b = await body(req); return json(res, setExclude(b.app, b.remove)); }
     if (p === '/api/pause' && req.method === 'POST') return json(res, setPause(!!(await body(req)).paused));
+    if (p === '/api/daemon') return json(res, daemonState());
+    if (p === '/api/daemon/start' && req.method === 'POST') return json(res, startDaemon());
+    if (p === '/api/daemon/stop' && req.method === 'POST') return json(res, stopDaemon());
+    if (p === '/api/sessions') return json(res, listSessions());
+    if (p === '/api/sessions/discard' && req.method === 'POST') return json(res, discard((await body(req)).id));
     if (p === '/api/episode' && req.method === 'DELETE') return json(res, delEpisode((await body(req)).hash));
     if (p === '/api/clear' && req.method === 'POST') return json(res, clear((await body(req)).scope));
     if (p === '/api/preferences') return json(res, await prefs());

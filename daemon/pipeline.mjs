@@ -9,7 +9,7 @@ import { runDailyRollup, labelEpisode } from './stage4/distill.mjs';
 import { answerQuery } from './retrieval.mjs';
 
 export class Pipeline {
-  constructor({ embed, onEpisode, segmenterOpts, novelty } = {}) {
+  constructor({ embed, onEpisode, segmenterOpts, novelty, sessionId } = {}) {
     this.embed = embed;
     this.seg = new Segmenter(segmenterOpts);
     this.index = new HybridIndex({ embed });
@@ -17,6 +17,7 @@ export class Pipeline {
     this.onEpisode = onEpisode;
     this._recent = [];                  // recent episode SimHashes, for cross-episode dedup
     this.novelty = novelty === false ? null : (novelty || new LineNovelty());   // suppress repeated chrome
+    this.sessionId = sessionId || null; // the activation run this pipeline belongs to (stamped on episodes)
   }
 
   // Capture the whole window, but drop lines already seen recently for it (stable chrome) so only
@@ -36,6 +37,7 @@ export class Pipeline {
     this._recent.push(sh); if (this._recent.length > 12) this._recent.shift();
 
     const labeled = await labelEpisode(ep, {});   // Stage 2: grounded type + owner (heuristic; cheap, no LLM)
+    if (this.sessionId) labeled.session_id = this.sessionId;   // tag with the activation run (covers flush() too)
     this.episodes.push(labeled);
     await this.index.add(labeled);      // Stage 3: searchable immediately (T0)
     if (this.onEpisode) this.onEpisode(labeled);

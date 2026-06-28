@@ -34,5 +34,16 @@ const res = await p.distill({ llm: mockLLM, graphAdd: g.add });
 ok('distill rolls up and writes to the graph', g.calls.length >= 1 && res.summarized >= 1, JSON.stringify(res));
 ok('buffer drained after distill', p.episodes.length === 0);
 
+// session stamping: every episode (incl. those emitted by flush) carries the activation run id
+const ps = new Pipeline({ embed, sessionId: 'sess_test', segmenterOpts: { minActiveMs: 0, minTokens: 0, idleMs: 90_000 } });
+await ps.ingest(ev(0, 'Editor', 'drafting the quarterly update for the leadership team'));
+await ps.flush();   // the open segment closes via flush — must still be stamped
+ok('episodes are stamped with session_id (covers flush)', ps.episodes.length >= 1 && ps.episodes.every((e) => e.session_id === 'sess_test'), JSON.stringify(ps.episodes.map((e) => e.session_id)));
+
+const pn = new Pipeline({ embed, segmenterOpts: { minActiveMs: 0, minTokens: 0, idleMs: 90_000 } });
+await pn.ingest(ev(0, 'Editor', 'a note with no active session attached at all'));
+await pn.flush();
+ok('no sessionId → episodes carry none (legacy bucket)', pn.episodes.every((e) => e.session_id === undefined), JSON.stringify(pn.episodes.map((e) => e.session_id)));
+
 console.log(`\n${fail === 0 ? '✅' : '❌'}  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

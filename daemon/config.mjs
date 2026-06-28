@@ -20,6 +20,12 @@ import { allowPatterns } from './apps.mjs';
 
 export const DATA_DIR = process.env.CONTINUUM_DATA || path.join(os.homedir(), '.continuum');
 export const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
+
+// Claude Desktop's config location — platform-specific. Used by mcp-install (CLI) and the
+// dashboard's "connected?" check, so both agree on one path.
+export const claudeConfigPath = () => process.platform === 'win32'
+  ? path.join(os.homedir(), 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json')
+  : path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
 const CFG_PATH = CONFIG_PATH;
 
 // Raw file read/write (no env overlay, no defaults) — for the dashboard Control panel to

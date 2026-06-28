@@ -16,9 +16,9 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadConfig, buildDeps, redacted, DATA_DIR } from '../daemon/config.mjs';
+import { loadConfig, buildDeps, redacted, DATA_DIR, claudeConfigPath } from '../daemon/config.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
-import { appendEpisode, loadEpisodes, pruneEpisodes } from '../daemon/store.mjs';
+import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession } from '../daemon/store.mjs';
 import { candidates, approve, dismiss, activePreferences } from '../daemon/preferences.mjs';
 import { localEmbedder } from '../daemon/adapters.mjs';
 import { watchFiles } from '../daemon/stage1/files.mjs';
@@ -133,9 +133,23 @@ async function start() {
   const verbose = process.env.CONTINUUM_VERBOSE === '1';
   console.error(`continuum: capturing (${source}, ${cfg.embeddings.provider}) → ${DATA_DIR} · silent (CONTINUUM_VERBOSE=1 to see episodes)\n`);
 
+  // Activation session: one record per run, so the dashboard can group "what this run collected".
+  // daemon.json advertises liveness (pid/session) to the dashboard; the `stop` sentinel is the
+  // Windows-safe graceful-stop channel (signals to a detached process are unreliable on Windows).
+  const sessionId = `sess_${Date.now()}`;
+  const DAEMON = path.join(DATA_DIR, 'daemon.json');
+  const STOP = path.join(DATA_DIR, 'stop');
+  const LOG = path.join(DATA_DIR, 'daemon.log');
+  try { fs.unlinkSync(STOP); } catch { /* no stale sentinel */ }
+  appendSession({ id: sessionId, start: Date.now(), host: os.hostname() });
+  fs.writeFileSync(DAEMON, JSON.stringify({ pid: process.pid, session: sessionId, start: Date.now(), log: LOG }));
+
+  let captureChild = null, audioChild = null;
+
   const p = new Pipeline({
     embed: deps.embed,
     segmenterOpts: { fuseAudio: cfg.capture.audio },   // #11: bind spoken utterances to the active visual segment
+    sessionId,                                          // stamp every episode with this activation run
     onEpisode: (ep) => { appendEpisode(ep); if (verbose) console.error(`  episode [${ep.app}] ${ep.close_reason} sal=${ep.salience} ${ep.text.slice(0, 70)}…`); },
   });
 
@@ -156,14 +170,14 @@ async function start() {
       CONTINUUM_EXCLUDE: [process.env.CONTINUUM_EXCLUDE, ...cfg.capture.exclude].filter(Boolean).join(','),
       CONTINUUM_ALLOW: (cfg.capture.allow || []).join(','),   // capture only the configured work apps ([] = all)
     };
-    const child = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
-    createInterface({ input: child.stdout }).on('line', onLine);
+    captureChild = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
+    createInterface({ input: captureChild.stdout }).on('line', onLine);
 
     if (cfg.capture.audio) {   // #10: opt-in meeting capture (mic + system audio), on-device, transcribe-then-delete
       const abin = ensureHelper('audio');
       if (abin) {
-        const ac = spawn(abin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
-        createInterface({ input: ac.stdout }).on('line', onLine);
+        audioChild = spawn(abin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
+        createInterface({ input: audioChild.stdout }).on('line', onLine);
         console.error('  + audio capture on (meetings; on-device, transcribe-then-delete)');
       }
     }
@@ -171,7 +185,25 @@ async function start() {
 
   if (cfg.files.watch.length) { watchFiles(cfg.files.watch, ingest); console.error(`  + watching files in: ${cfg.files.watch.join(', ')}`); }
 
-  process.on('SIGINT', async () => { await q; await p.flush(); process.exit(0); });
+  // Graceful shutdown: flush open segments, kill capture children, stamp the session end, clear the
+  // liveness/sentinel files. Shared by Ctrl-C (SIGINT/SIGTERM) and the dashboard's stop sentinel.
+  let stopping = false;
+  const shutdown = async (code = 0) => {
+    if (stopping) return; stopping = true;
+    try { await q; } catch { /* drain */ }
+    try { await p.flush(); } catch { /* flush open segments */ }
+    try { captureChild?.kill(); } catch { /* gone */ }
+    try { audioChild?.kill(); } catch { /* gone */ }
+    try { endSession(sessionId); } catch { /* stamp session end */ }
+    try { fs.unlinkSync(DAEMON); } catch { /* already gone */ }
+    try { fs.unlinkSync(STOP); } catch { /* already gone */ }
+    process.exit(code);
+  };
+  process.on('SIGINT', () => shutdown(0));
+  process.on('SIGTERM', () => shutdown(0));
+  // Windows-safe stop: the dashboard writes the `stop` sentinel; poll for it. The interval also keeps
+  // this (possibly detached) process alive when capture is event-driven and otherwise idle.
+  setInterval(() => { if (fs.existsSync(STOP)) shutdown(0); }, 1000);
 }
 
 // continuum preferences — review how the agent has learned you want it to work, and curate it.
@@ -261,8 +293,8 @@ switch (cmd) {
   case 'dashboard': await import('../daemon/dashboard.mjs'); break;
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
   case 'mcp-install': {
-    const dir = path.join(os.homedir(), 'Library', 'Application Support', 'Claude');
-    const cfgPath = path.join(dir, 'claude_desktop_config.json');
+    const cfgPath = claudeConfigPath();
+    const dir = path.dirname(cfgPath);
     const server = path.join(HERE, '..', 'daemon', 'mcp-server.mjs');
     let conf = {};
     try { conf = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); fs.copyFileSync(cfgPath, cfgPath + '.bak'); } catch { /* no config yet */ }
@@ -270,7 +302,8 @@ switch (cmd) {
     conf.mcpServers.continuum = { command: process.execPath, args: [server] };
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(cfgPath, JSON.stringify(conf, null, 2) + '\n');
-    console.log(`✓ Continuum added to Claude Desktop.\n  ${cfgPath}\n\nLast step: fully quit Claude Desktop (Cmd+Q) and reopen it.\nThen ask it: "what was I working on?"`);
+    const quit = process.platform === 'win32' ? 'fully quit Claude Desktop (right-click the tray icon → Quit)' : 'fully quit Claude Desktop (Cmd+Q)';
+    console.log(`✓ Continuum added to Claude Desktop.\n  ${cfgPath}\n\nLast step: ${quit} and reopen it.\nThen ask it: "what was I working on?"`);
     break;
   }
   case 'mcp-config': {     // for other MCP clients — prints the config to paste yourself
