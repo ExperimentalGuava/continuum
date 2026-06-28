@@ -371,6 +371,7 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 <main id=main></main>
 <div class=scrim id=scrim></div>
 <div class=sheet id=sheet>
+  <button class=mi data-go=home><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=11 cy=11 r="7"/><path d="m21 21-4.3-4.3"/></svg>Today<span class=sub>insights &amp; ask</span></button>
   <button class=mi data-go=timeline><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r="9"/><path d="M12 7v5l3 2"/></svg>Timeline<span class=sub>all moments</span></button>
   <button class=mi data-go=sessions><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><rect x=3 y=4 width=18 height=4 rx=1/><rect x=3 y=11 width=18 height=4 rx=1/><rect x=3 y=18 width=14 height=2 rx=1/></svg>Sessions<span class=sub>capture runs</span></button>
   <button class=mi data-go=preferences><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 7h9M19 7h1M4 12h1M10 12h10M4 17h6M16 17h4"/><circle cx="16" cy="7" r="2"/><circle cx="7" cy="12" r="2"/><circle cx="13" cy="17" r="2"/></svg>Preferences<span class=sub>for agents</span></button>
@@ -390,7 +391,7 @@ var ICON={
 };
 var SRC={ocr:'screen',screen:'screen',input:'typed',ax:'app',file:'file',clipboard:'clip',audio:'audio'};
 var root=document.documentElement,main=document.getElementById('main');
-var S={view:'home',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null,sessions:null,sessionDetail:null};
+var S={view:'control',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null,sessions:null,sessionDetail:null};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function clock(ms){if(!ms)return'';return new Date(ms).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 function dur(ms){var m=Math.round(ms/60000);if(m<1)return'<1m';if(m<60)return m+'m';var h=Math.floor(m/60);return h+'h '+(m%60)+'m';}
@@ -449,9 +450,37 @@ function renderResult(){
   b.innerHTML=html;
 }
 
+/* ---------- CONTROL: start/stop the daemon + watch what it collects (landing page) ---------- */
+function controlStatus(){
+  var dm=(S.state&&S.state.daemon)||{running:false};
+  var dot=dm.running?'<span class="dot on"></span>Running'+(dm.start?' · since '+clock(dm.start):''):(dm.stopping?'<span class="dot warn"></span>Stopping&hellip;':'<span class=dot></span>Stopped');
+  var btn=dm.running?'<button class="btn danger" id=daemon-stop>Stop capture</button>':'<button class="btn solid" id=daemon-start'+(dm.stopping?' disabled':'')+'>Start capture</button>';
+  var msg=dm.running?'Capturing your work apps. Output appears below as it&rsquo;s collected.':'Start the daemon to begin capturing. Output will appear here.';
+  return '<div class=block><div class=line><span class=k>'+dot+'</span>'+btn+'</div><p style="margin-top:12px;margin-bottom:0">'+msg+'</p></div>';
+}
+function renderControl(){
+  main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>Capture</h1>'+
+    '<div id=cstatus style="margin-top:24px">'+controlStatus()+'</div>'+
+    '<div class=seclabel style="margin-top:34px">Captured this session</div>'+
+    '<div class=rows id=feed><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
+  loadFeed();
+}
+function refreshControl(){ var cs=document.getElementById('cstatus'); if(cs)cs.innerHTML=controlStatus(); loadFeed(); }
+function loadFeed(){
+  getJSON('/api/sessions').then(function(ss){
+    S.sessions=ss;
+    var cur=ss.filter(function(s){return s.active;})[0]||ss[0];
+    var feed=document.getElementById('feed'); if(!feed)return;
+    if(!cur){feed.innerHTML='<div class=note>No capture yet. Click <b>Start capture</b> above.</div>';return;}
+    var prm=new URLSearchParams();prm.set('session',cur.id);
+    getJSON('/api/timeline?'+prm.toString()).then(function(rows){var f=document.getElementById('feed');if(!f)return;
+      f.innerHTML=rows.length?rows.map(function(r){return momentRow(r,'');}).join(''):'<div class=note>'+(cur.active?'Running &mdash; nothing captured yet. Switch to a work app (Outlook/Teams/&hellip;) and it&rsquo;ll appear here.':'No moments in this run.')+'</div>';});
+  });
+}
+
 /* ---------- TIMELINE ---------- */
 function renderTimeline(){
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Today</button>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
     '<div class=vh>Timeline</div><div class=vsub>'+(S.state?S.state.stats.total:'')+' moments, newest first.</div>'+
     '<div class=search>'+ICON.search+'<input id=q placeholder="Search your memory&hellip;" value="'+esc(S.facet.q)+'"></div>'+
     '<div class=rows id=rows style="margin-top:12px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
@@ -477,7 +506,7 @@ function sessionRow(s){
 }
 function renderSessions(){
   if(S.sessionDetail){renderSessionDetail();return;}
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Today</button>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
     '<div class=vh>Sessions</div><div class=vsub>Each capture run — what the daemon collected while active.</div>'+
     '<div class=rows id=srows style="margin-top:14px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.sessions){loadSessions();return;}
@@ -502,7 +531,7 @@ function renderPrivacy(){
   var dm=st.daemon||{running:false};
   var dstat=dm.running?('<span class="dot on"></span>Running'+(dm.start?' since '+clock(dm.start):'')):(dm.stopping?'<span class="dot warn"></span>Stopping…':'<span class=dot></span>Stopped');
   var dbtn=dm.running?'<button class="btn danger" id=daemon-stop>Stop capture</button>':'<button class="btn solid" id=daemon-start'+(dm.stopping?' disabled':'')+'>Start capture</button>';
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Today</button>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
     '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device.</div>'+
     '<div class=block><h3>Capture daemon</h3><p>Activate to begin a capture session; stop to end it. Each run is grouped under <b>Sessions</b>.</p>'+
       '<div class=line><span class=k>'+dstat+'</span>'+dbtn+'</div></div>'+
@@ -539,7 +568,7 @@ function prefSuggest(p){
     '<div class=pbtns><button class="btn solid" data-pref-approve="'+esc(p.id)+'">Approve</button><button class=btn data-pref-edit="'+esc(p.id)+'">Edit</button><button class=btn data-pref-dismiss="'+esc(p.id)+'">Dismiss</button></div></div>';
 }
 function renderPrefs(){
-  var head='<button class=back id=back>'+ICON.back+'Today</button>'+
+  var head='<button class=back id=back>'+ICON.back+'Capture</button>'+
     '<div class=vh>Preferences</div><div class=vsub>How your agents work for you. Learned from your activity &mdash; things you&rsquo;ve clearly stated apply automatically; everything else waits for your okay. Applied silently, never in the chat.</div>';
   var d=S.prefs;
   if(!d){main.innerHTML=head+'<div class=muted style="padding:22px 0">Loading&hellip;</div>';loadPrefs();return;}
@@ -551,9 +580,9 @@ function renderPrefs(){
 }
 
 /* ---------- shell ---------- */
-function render(){if(S.view==='home')renderHome();else if(S.view==='timeline')renderTimeline();else if(S.view==='sessions')renderSessions();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
+function render(){if(S.view==='control')renderControl();else if(S.view==='home')renderHome();else if(S.view==='timeline')renderTimeline();else if(S.view==='sessions')renderSessions();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
 function go(v){S.view=v;S.editPref=null;if(v==='preferences')S.prefs=null;if(v==='sessions'){S.sessions=null;S.sessionDetail=null;}closeMenu();render();}
-function home(){S.view='home';S.result=null;S.query='';S.editPref=null;render();}
+function home(){S.view='control';S.result=null;S.query='';S.editPref=null;S.sessionDetail=null;render();}
 
 /* theme: follow system unless overridden; persisted */
 function effective(){var t=root.dataset.theme;if(t)return t;return matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
@@ -590,7 +619,7 @@ main.addEventListener('click',function(e){
   if(t.closest('[data-pref-canceledit]')){S.editPref=null;renderPrefs();return;}
   var psv=t.closest('[data-pref-save]');if(psv){var inp=document.getElementById('pedit'),nv=inp?inp.value.trim():'',orig=((S.prefs.suggested||[]).concat(S.prefs.active||[])).filter(function(x){return x.id===psv.dataset.prefSave;})[0];if(nv){var bd={text:nv,kind:psv.dataset.kind};if(orig&&nv!==orig.text)bd.from=psv.dataset.prefSave;send('/api/preferences/approve','POST',bd).then(function(d){S.editPref=null;S.prefs=d;renderPrefs();});}return;}
   var pds=t.closest('[data-pref-dismiss]');if(pds){send('/api/preferences/dismiss','POST',{id:pds.dataset.prefDismiss}).then(function(d){S.prefs=d;renderPrefs();});return;}
-  var rowEl=t.closest('.row');if(rowEl&&rowEl.dataset.hash){S.open[rowEl.dataset.hash]=!S.open[rowEl.dataset.hash];if(S.view==='timeline')loadRows();else if(S.result)renderResult();else renderInsights();return;}
+  var rowEl=t.closest('.row');if(rowEl&&rowEl.dataset.hash){S.open[rowEl.dataset.hash]=!S.open[rowEl.dataset.hash];if(S.view==='control')loadFeed();else if(S.view==='timeline')loadRows();else if(S.view==='sessions'&&S.sessionDetail)renderSessionDetail();else if(S.result)renderResult();else renderInsights();return;}
 });
 main.addEventListener('input',function(e){if(e.target.id==='q'){clearTimeout(S._t);S.facet.q=e.target.value;S._t=setTimeout(loadRows,200);}else if(e.target.id==='ask'){S.query=e.target.value;}});
 main.addEventListener('keydown',function(e){if(e.target.id==='ask'&&e.key==='Enter')runAsk(e.target.value);else if(e.target.id==='pedit'&&e.key==='Enter'){var sb=document.querySelector('[data-pref-save]');if(sb)sb.click();}else if(e.target.id==='pedit'&&e.key==='Escape'){e.stopPropagation();S.editPref=null;renderPrefs();}});
@@ -602,9 +631,9 @@ document.addEventListener('keydown',function(e){
 
 function loadState(re){return getJSON('/api/state').then(function(s){S.state=s;var sub=document.getElementById('mcpsub');if(sub){sub.textContent=s.mcp.claude?'connected':'MCP';sub.className=s.mcp.claude?'sub ok':'sub';}if(re)render();});}
 /* after start/stop, poll a bit faster so the status indicator flips as daemon.json appears/clears */
-function bumpPoll(){var n=0;var iv=setInterval(function(){loadState(S.view==='privacy');if(++n>=6)clearInterval(iv);},1500);}
+function bumpPoll(){var n=0;var iv=setInterval(function(){loadState(false).then(function(){if(S.view==='privacy')render();else if(S.view==='control')refreshControl();});if(++n>=6)clearInterval(iv);},1500);}
 loadState().then(render);
-setInterval(function(){loadState(false);if(S.view==='timeline'&&!S.facet.q)loadRows();else if(S.view==='sessions'&&!S.sessionDetail)loadSessions();},10000);
+setInterval(function(){loadState(false).then(function(){if(S.view==='control')refreshControl();});if(S.view==='timeline'&&!S.facet.q)loadRows();else if(S.view==='sessions'&&!S.sessionDetail)loadSessions();},5000);
 </script>
 </body></html>`;
 
