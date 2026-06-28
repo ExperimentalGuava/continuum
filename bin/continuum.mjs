@@ -290,6 +290,34 @@ switch (cmd) {
     }
     break;
   }
+  case 'extract': {    // structured, typed content from captures: email/message/ticket/action + Office aggregates
+    const { llm } = buildDeps();
+    const { extractRecords } = await import('../daemon/stage4/extract.mjs');
+    const { records, office } = await extractRecords(loadEpisodes(), { llm });
+    console.log('continuum extract — structured content from your captures\n');
+    const fmtWhen = (ms) => (ms ? new Date(ms).toLocaleString() : '');
+    const by = {};
+    for (const r of records) (by[r.kind] ||= []).push(r);
+    for (const k of ['email', 'message', 'ticket', 'action']) {
+      const rs = by[k]; if (!rs || !rs.length) continue;
+      console.log(`${k.toUpperCase()} (${rs.length})`);
+      for (const r of rs.slice(0, 20)) {
+        if (k === 'email') console.log(`  ${r.direction === 'out' ? '→' : '←'} ${r.from || '?'} · ${r.subject || '(no subject)'} · ${r.when || fmtWhen(r.at)}`);
+        else if (k === 'ticket') { const ttl = r.title || '(untitled)'; const head = r.key && !ttl.includes(r.key) ? r.key + ' ' : ''; console.log(`  • ${head}${ttl}${r.due ? ' · due ' + r.due : ''} · ${r.status}`); }
+        else if (k === 'message') console.log(`  • ${r.owner === 'me' ? 'me' : 'them'}: ${(r.text || '').slice(0, 80)}`);
+        else console.log(`  • ${r.what}`);
+      }
+      console.log('');
+    }
+    if (office.length) {
+      console.log(`OFFICE FILES (${office.length})`);
+      for (const o of office.slice(0, 20)) console.log(`  • ${o.file} · ${Math.round(o.dwellMs / 60000)}m · ${o.touches} touch(es)`);
+      console.log('');
+    }
+    if (!records.length && !office.length) console.log('  (nothing structured yet — run `continuum start` and work in your apps)');
+    console.log(`  ${records.length} record(s) · ${llm ? 'heuristic + Claude' : 'heuristic only — add a key for the LLM pass'}`);
+    break;
+  }
   case 'dashboard': await import('../daemon/dashboard.mjs'); break;
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
   case 'mcp-install': {
@@ -312,5 +340,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
+    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  extract       structured records: email/message/ticket/action + Office activity\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
 }

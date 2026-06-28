@@ -182,10 +182,23 @@ fn is_sensitive(text: &str) -> bool {
     MARKERS.iter().any(|m| h.contains(m))
 }
 
-fn emit_text(now: i64, source: &str, app: &str, window_id: &str, title: &str, text: &str) {
+fn emit_text(now: i64, source: &str, app: &str, window_id: &str, title: &str, text: &str, authored: bool) {
     let mut obj = serde_json::json!({ "t": now, "source": source, "app": app, "window_id": window_id, "text": text });
     if !title.is_empty() { obj["title"] = serde_json::Value::String(title.to_string()); }
+    if authored { obj["authored"] = serde_json::Value::Bool(true); }   // user is typing here → owner=me downstream
     emit(&obj);
+}
+
+// MS Office apps — capture file name + dwell only (metadata aggregate), never the document/sheet body.
+fn is_office(app: &str) -> bool {
+    matches!(app.to_lowercase().as_str(), "winword" | "excel" | "powerpnt")
+}
+
+// Office metadata event: the window title carries the file name; repeated emits coalesce downstream
+// (same title) and accrue dwell, yielding a per-file activity aggregate without the document body.
+fn emit_office(now: i64, app: &str, window_id: &str, title: &str) {
+    if title.is_empty() { return; }
+    emit(&serde_json::json!({ "t": now, "source": "office", "app": app, "window_id": window_id, "title": title, "text": title }));
 }
 
 // Everything the event handlers need to capture and dedup. Held in the thread-local STATE.
@@ -221,6 +234,15 @@ impl Capturer {
         }
         let window_id = format!("{app}|{title}");
 
+        // Office: metadata only — emit the file name (title); dwell aggregates downstream, no body.
+        if is_office(&app) {
+            emit_office(now_ms(), &app, &window_id, &title);
+            return;
+        }
+
+        // Is the user typing here (vs reading)? Tags the capture as authored (owner = me downstream).
+        let authored = self.uia.as_ref().map_or(false, |u| u.authored_focus());
+
         // 1) UIA — the clean structured text (email body, chat, ticket). Primary where it works; the
         //    content OCR can't read (WebView2/RichEdit) lives here.
         if let Some(u) = &self.uia {
@@ -236,7 +258,7 @@ impl Capturer {
                 if changed && !is_sensitive(&text) {
                     touch(&mut self.win, &mut self.order, &window_id, sig);
                     if text.chars().count() >= 20 {
-                        emit_text(now_ms(), "uia", &app, &window_id, &title, &text);
+                        emit_text(now_ms(), "uia", &app, &window_id, &title, &text, authored);
                     }
                 }
                 return; // UIA produced text → don't also OCR
@@ -257,7 +279,7 @@ impl Capturer {
                     let text = redact::redact(&raw);
                     let t = text.trim();
                     if t.chars().count() >= 20 && !is_sensitive(t) {
-                        emit_text(now_ms(), "ocr", &app, &window_id, &title, t);
+                        emit_text(now_ms(), "ocr", &app, &window_id, &title, t, authored);
                     }
                 }
             }

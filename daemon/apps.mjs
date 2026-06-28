@@ -11,6 +11,8 @@ export const APP_CLASSES = [
   { key: 'slack',      label: 'Slack',                                    patterns: ['slack'] },
   { key: 'servicenow', label: 'ServiceNow',                               patterns: ['servicenow', 'service-now'] },
   { key: 'salesforce', label: 'Salesforce',                               patterns: ['salesforce', 'force.com', 'lightning'] },
+  { key: 'office',     label: 'Microsoft Office (Word/Excel/PowerPoint)', patterns: ['winword', 'excel', 'powerpnt', 'powerpoint'] },
+  { key: 'anaplan',    label: 'Anaplan',                                  patterns: ['anaplan'] },
 ];
 
 // Flat substring list handed to the daemon via env, and the default for the Node-side filter.
@@ -22,4 +24,12 @@ export function matchesAllow(haystack, allow = allowPatterns()) {
   if (!allow || allow.length === 0) return true;
   const h = (haystack || '').toLowerCase();
   return allow.some((p) => h.includes(p));
+}
+
+// The APP_CLASSES key this context (app + title + url host) belongs to, or null. First match wins,
+// in declaration order. Used by the typed extractor to route an episode to email/ticket/etc.
+export function classOf(haystack) {
+  const h = (haystack || '').toLowerCase();
+  for (const c of APP_CLASSES) if (c.patterns.some((p) => h.includes(p))) return c.key;
+  return null;
 }

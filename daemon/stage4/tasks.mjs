@@ -38,7 +38,7 @@ function nextDow(base, target) {
   return endOfDay(base + delta * DAY);
 }
 const DOW = { sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tue: 2, wednesday: 3, wed: 3, thursday: 4, thu: 4, friday: 5, fri: 5, saturday: 6, sat: 6 };
-function dueToMs(phrase, base) {
+export function dueToMs(phrase, base) {
   const p = (phrase || '').toLowerCase();
   if (/today|tonight|eod|end of day/.test(p)) return endOfDay(base);
   if (/tomorrow/.test(p)) return endOfDay(base + DAY);
@@ -48,7 +48,7 @@ function dueToMs(phrase, base) {
   return null;
 }
 const DUE_PHRASE = /\b(today|tonight|tomorrow|eod|eow|end of day|end of week|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/;
-const extractDue = (low) => (low.match(DUE_PHRASE) || [''])[0];
+export const extractDue = (low) => (low.match(DUE_PHRASE) || [''])[0];
 
 // --- heuristic commitment detection (free, on-device) ---
 const SENT_SPLIT = /(?<=[.!?\n])\s+/;

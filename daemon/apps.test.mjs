@@ -1,12 +1,15 @@
 // Run:  node daemon/apps.test.mjs
-import { matchesAllow, allowPatterns, APP_CLASSES } from './apps.mjs';
+import { matchesAllow, allowPatterns, APP_CLASSES, classOf } from './apps.mjs';
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n}  ${x}`); } };
 
 console.log('\nApp allowlist (capture targeting)\n');
 
-ok('six canonical work-app classes', APP_CLASSES.length === 6, `n=${APP_CLASSES.length}`);
+ok('canonical work-app classes present', APP_CLASSES.length === 8, `n=${APP_CLASSES.length}`);
+ok('Office (Excel) classifies as office', classOf('excel Q3 Budget.xlsx - Excel') === 'office');
+ok('Jira (web title) classifies as atlassian', classOf('chrome PROJ-1 - Jira') === 'atlassian');
+ok('Anaplan classifies', classOf('anaplan model') === 'anaplan');
 ok('native desktop app matches by name', matchesAllow('Outlook'));
 ok('native Teams matches', matchesAllow('Microsoft Teams'));
 ok('web Jira matches via window title', matchesAllow('chrome [PROJ-128] Fix login bug - Jira'));

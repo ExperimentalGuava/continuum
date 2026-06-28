@@ -133,6 +133,7 @@ export class Segmenter {
     if (text === seg.lastText || hamming(sh, seg.simhash) <= this.cfg.simhashNear) {
       this._accrue(seg, t);
       seg.dedupCount++;
+      if (ev.authored) seg.sourceMix.add('input');
       if (text.length > seg.lastText.length) { seg.lastText = text; seg.simhash = sh; }  // keep fullest state
       return out;
     }
@@ -162,6 +163,7 @@ export class Segmenter {
     seg.tokens += incoming;
     seg.updateCount++;
     seg.sourceMix.add(ev.source);
+    if (ev.authored) seg.sourceMix.add('input');
     return out;
   }
 
@@ -175,7 +177,7 @@ export class Segmenter {
       url_host: ev.url_host || null, title: ev.title || null,
       start: t, lastActive: t, activeMs: 0,
       text: txt, lastText: txt, simhash: simhash(txt), tokens: tokens(txt).length,
-      updateCount: 1, dedupCount: 0, sourceMix: new Set([ev.source]),
+      updateCount: 1, dedupCount: 0, sourceMix: new Set(ev.authored ? [ev.source, 'input'] : [ev.source]),
     };
   }
 

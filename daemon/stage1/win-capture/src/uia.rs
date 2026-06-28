@@ -9,11 +9,12 @@ use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
     IUIAutomationValuePattern, UIA_ButtonControlTypeId, UIA_CONTROLTYPE_ID,
-    UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId, UIA_ImageControlTypeId,
-    UIA_MenuBarControlTypeId, UIA_MenuControlTypeId, UIA_MenuItemControlTypeId,
-    UIA_ScrollBarControlTypeId, UIA_SeparatorControlTypeId, UIA_SpinnerControlTypeId,
-    UIA_TabControlTypeId, UIA_TabItemControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId,
-    UIA_TitleBarControlTypeId, UIA_ToolBarControlTypeId, UIA_ValuePatternId,
+    UIA_DocumentControlTypeId, UIA_EditControlTypeId, UIA_HeaderControlTypeId,
+    UIA_HeaderItemControlTypeId, UIA_ImageControlTypeId, UIA_MenuBarControlTypeId,
+    UIA_MenuControlTypeId, UIA_MenuItemControlTypeId, UIA_ScrollBarControlTypeId,
+    UIA_SeparatorControlTypeId, UIA_SpinnerControlTypeId, UIA_TabControlTypeId,
+    UIA_TabItemControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId, UIA_TitleBarControlTypeId,
+    UIA_ToolBarControlTypeId, UIA_ValuePatternId,
 };
 
 pub struct Uia {
@@ -57,6 +58,27 @@ impl Uia {
             .ok()
             .map(|el| is_password(&el))
             .unwrap_or(false)
+    }
+
+    // True if the focused element is an editable surface the user is TYPING into (compose box, cell,
+    // editable doc) — vs reading. Lets downstream tag the capture as authored (owner = me). An Edit
+    // field is authored unless explicitly read-only; a Document only if its ValuePattern says editable
+    // (so an email reading pane / read-only doc is NOT treated as authored).
+    pub fn authored_focus(&self) -> bool {
+        let Ok(el) = (unsafe { self.auto.GetFocusedElement() }) else { return false; };
+        let ct = match unsafe { el.CurrentControlType() } { Ok(c) => c, Err(_) => return false };
+        let editable = || -> Option<bool> {
+            let pat = unsafe { el.GetCurrentPattern(UIA_ValuePatternId) }.ok()?;
+            let vp = pat.cast::<IUIAutomationValuePattern>().ok()?;
+            Some(!unsafe { vp.CurrentIsReadOnly() }.ok()?.as_bool())
+        };
+        if ct == UIA_EditControlTypeId {
+            return editable().unwrap_or(true);    // edit field → authored unless read-only
+        }
+        if ct == UIA_DocumentControlTypeId {
+            return editable().unwrap_or(false);   // document → authored only if explicitly editable
+        }
+        false
     }
 
     fn gather(&self, el: &IUIAutomationElement, budget: isize) -> Option<String> {

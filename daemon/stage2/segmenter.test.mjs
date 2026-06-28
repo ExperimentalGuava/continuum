@@ -111,5 +111,12 @@ console.log('\nStage 2 segmenter\n');
   ok('redactPII pure helper', redactPII('x@y.com') === '[email]');
 }
 
+// 10) authored flag → source_mix includes 'input' (the owner=me signal the daemon now emits)
+{
+  const s = new Segmenter({ minActiveMs: 0, minTokens: 0 });
+  const eps = run(s, [ev(0, 'Teams', 'I will send the report tomorrow', { authored: true })]);
+  ok('authored event tags source_mix with input', eps[0]?.source_mix.includes('input'), `mix=${eps[0]?.source_mix}`);
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'}  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

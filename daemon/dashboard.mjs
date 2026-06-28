@@ -11,6 +11,7 @@ import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
 import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
+import { classifyKind } from './stage4/extract.mjs';
 import { extractStated, extractInferred, activePreferences, loadStore as prefStore, approve as prefApprove, dismiss as prefDismiss, removeApproved as prefRemove } from './preferences.mjs';
 
 const { embed, llm } = buildDeps();
@@ -36,6 +37,8 @@ const card = (e) => ({
   authored: (e.structured && e.structured.authored) || '',
   salience: e.salience == null ? 0 : e.salience,
   session: e.session_id || null,
+  kind: classifyKind(e),
+  who: ((e.source_mix || []).includes('input') || (e.structured && e.structured.authored)) ? 'you' : 'other',
 });
 
 function computeStats(eps) {
@@ -404,7 +407,7 @@ function momentRow(r,tag){
   var o=S.open[r.hash];
   return '<button class="row'+(o?' open':'')+'" id="'+(r.n?'src-'+r.n:'')+'" data-hash="'+esc(r.hash)+'">'+
     '<div class=body><div class=mt>'+(r.n?'<b style="color:var(--sec);font-weight:600;margin-right:7px">'+r.n+'</b>':'')+esc(r.snippet||r.text)+'</div>'+
-    '<div class=mm>'+esc(r.app)+' &middot; '+esc(clock(r.time))+'</div></div>'+
+    '<div class=mm>'+(r.kind&&r.kind!=='other'?esc(r.kind)+' &middot; ':'')+esc(r.app)+(r.who?' &middot; '+esc(r.who):'')+' &middot; '+esc(clock(r.time))+'</div></div>'+
     (tag?'<span class=tag>'+esc(tag)+'</span>':'')+ICON.chev+'</button>'+
     (o?'<div class=full>'+(r.authored?'<div class=auth>&#9998; you typed: '+esc(r.authored)+'</div>':'')+esc(r.full||r.text||'')+
       '<div><button class=del data-del="'+esc(r.hash)+'">Delete this moment</button></div></div>':'');
