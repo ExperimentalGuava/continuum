@@ -4,9 +4,13 @@
 //   {t, source, app, window_id, title?, text}
 // so the entire downstream JS pipeline (segment → index → distill → MCP) runs unchanged.
 //
-// OCR-first: on a debounced poll we screenshot the focused window, gate on a perceptual-hash
-// diff (skip OCR when nothing changed), OCR the changed frame on-device, redact, and emit.
-// Clipboard is a sequence-number poll, mirroring the macOS changeCount poll.
+// Event-driven: instead of polling on a timer, we install WinEvent hooks (foreground change, focus,
+// value/name change) and an AddClipboardFormatListener. The daemon then sleeps in a message loop
+// until Windows tells us something changed. Text-change events (re)arm a short debounce timer, so we
+// capture once typing settles — not per keystroke — and a focus change captures the new surface once
+// it lands. On the debounce fire we read the focused window: UIA clean text first (the body OCR can't
+// see), OCR fallback for surfaces UIA can't expose, gated by a content-hash so unchanged screens are
+// dropped. Clipboard fires on WM_CLIPBOARDUPDATE.
 //
 // Build:  cargo build --release
 // Run:    target\release\continuum-capture.exe | node daemon\pipeline.mjs
@@ -15,26 +19,53 @@ mod ocr;
 mod redact;
 mod uia;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::ffi::c_void;
 use std::io::Write;
-use std::thread::sleep;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicIsize, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use windows::core::PWSTR;
-use windows::Win32::Foundation::{CloseHandle, FALSE, HGLOBAL, HWND};
+use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::Foundation::{
+    CloseHandle, FALSE, HGLOBAL, HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, WPARAM,
+};
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, GetClipboardData, GetClipboardSequenceNumber, OpenClipboard,
+    AddClipboardFormatListener, CloseClipboard, GetClipboardData, OpenClipboard,
 };
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetAncestor, GetForegroundWindow,
+    GetMessageW, GetWindowTextW, GetWindowThreadProcessId, KillTimer, PostQuitMessage,
+    RegisterClassW, SetTimer, TranslateMessage, EVENT_OBJECT_FOCUS, EVENT_OBJECT_VALUECHANGE,
+    EVENT_SYSTEM_FOREGROUND, GA_ROOT, HMENU, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_CLIPBOARDUPDATE, WM_DESTROY, WM_TIMER,
+    WNDCLASSW,
 };
 
 const CF_UNICODETEXT: u32 = 13;
+
+// Debounce: a text/focus event (re)arms this timer; we capture only after the events go quiet. This
+// is the per-keystroke fix — a burst of VALUECHANGE events collapses to one capture once typing stops.
+const DEBOUNCE_MS: u32 = 600;
+const TIMER_ID: usize = 1;
+
+// The message-only window's handle, published for the WinEvent callback (a bare extern fn that can't
+// capture state) so it can post the debounce timer. isize because HWND isn't Send/atomic-friendly.
+static MSG_HWND: AtomicIsize = AtomicIsize::new(0);
+
+// Per-thread capture state. The WinEvent callback and the window proc both run on the main thread
+// (out-of-context hooks + timers dispatch through its message loop), so a thread-local is sound and
+// lets the bare extern fns reach the Capturer without globals-with-Mutex ceremony.
+thread_local! {
+    static STATE: RefCell<Option<Capturer>> = const { RefCell::new(None) };
+}
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -118,7 +149,7 @@ fn clipboard_text() -> Option<String> {
 const MAX_WINDOWS: usize = 512;
 
 // FNV-1a — a cheap content signature for the UIA text-change gate (exact change, unlike OCR's fuzzy
-// pHash). Lets us skip re-emitting a comms window whose text hasn't changed since last tick.
+// pHash). Lets us skip re-emitting a comms window whose text hasn't changed since last event.
 fn fnv1a(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in s.as_bytes() { h ^= *b as u64; h = h.wrapping_mul(0x0000_0100_0000_01b3); }
@@ -126,15 +157,15 @@ fn fnv1a(s: &str) -> u64 {
 }
 
 // Record a window's new signature, evicting the oldest window if the cache is full.
-fn touch(win: &mut HashMap<String, (u64, i64)>, order: &mut VecDeque<String>, id: &str, sig: u64) {
+fn touch(win: &mut HashMap<String, u64>, order: &mut VecDeque<String>, id: &str, sig: u64) {
     if let Some(slot) = win.get_mut(id) {
-        slot.0 = sig;
+        *slot = sig;
     } else {
         if win.len() >= MAX_WINDOWS {
             if let Some(old) = order.pop_front() { win.remove(&old); }
         }
         order.push_back(id.to_string());
-        win.insert(id.to_string(), (sig, 0));
+        win.insert(id.to_string(), sig);
     }
 }
 
@@ -157,13 +188,162 @@ fn emit_text(now: i64, source: &str, app: &str, window_id: &str, title: &str, te
     emit(&obj);
 }
 
+// Everything the event handlers need to capture and dedup. Held in the thread-local STATE.
+struct Capturer {
+    uia: Option<uia::Uia>,    // None if UIA is unavailable → pure OCR (safe degrade)
+    engine: ocr::Engine,
+    self_app: String,
+    allow: Vec<String>,
+    excludes: Vec<String>,
+    // Per-window change cache, FIFO-bounded so a long session can't grow it without limit.
+    // value = last content signature (UIA fnv1a) or screen pHash (OCR); oldest evicted when full.
+    win: HashMap<String, u64>,
+    order: VecDeque<String>,
+    last_clip: String,
+}
+
+impl Capturer {
+    // Capture the focused window: UIA clean text first, OCR fallback. Called on the debounce fire.
+    fn capture_foreground(&mut self) {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.0.is_null() {
+            return;
+        }
+        let app = app_name(hwnd);
+        let title = window_title(hwnd);
+        let hay = format!("{app} {title}").to_lowercase(); // match allow/exclude on app + title
+        let allowed = self.allow.is_empty() || self.allow.iter().any(|p| hay.contains(p));
+        let skip = !allowed
+            || app.to_lowercase() == self.self_app
+            || self.excludes.iter().any(|e| hay.contains(e));
+        if skip {
+            return;
+        }
+        let window_id = format!("{app}|{title}");
+
+        // 1) UIA — the clean structured text (email body, chat, ticket). Primary where it works; the
+        //    content OCR can't read (WebView2/RichEdit) lives here.
+        if let Some(u) = &self.uia {
+            // A focused password field → never capture (not even via OCR). This is the distinct
+            // "suppress entirely" signal; text()==None below only means "no UIA text, try OCR".
+            if u.secure_focus() {
+                return;
+            }
+            if let Some(raw) = u.text(hwnd, 6000) {
+                let text = redact::redact(&raw);
+                let sig = fnv1a(&text); // exact change gate (text, not pixels)
+                let changed = self.win.get(&window_id).map_or(true, |&prev| prev != sig);
+                if changed && !is_sensitive(&text) {
+                    touch(&mut self.win, &mut self.order, &window_id, sig);
+                    if text.chars().count() >= 20 {
+                        emit_text(now_ms(), "uia", &app, &window_id, &title, &text);
+                    }
+                }
+                return; // UIA produced text → don't also OCR
+            }
+        }
+
+        // 2) OCR fallback — apps whose text UIA can't expose (or UIA unavailable).
+        if let Some(frame) = capture::capture(hwnd) {
+            let h = capture::dhash(&frame);
+            // architecture: pHash Hamming < 5 == "same screen" → skip OCR
+            let changed = self
+                .win
+                .get(&window_id)
+                .map_or(true, |&prev| capture::hamming(prev, h) >= 5);
+            if changed {
+                touch(&mut self.win, &mut self.order, &window_id, h);
+                if let Some(raw) = self.engine.run(&frame) {
+                    let text = redact::redact(&raw);
+                    let t = text.trim();
+                    if t.chars().count() >= 20 && !is_sensitive(t) {
+                        emit_text(now_ms(), "ocr", &app, &window_id, &title, t);
+                    }
+                }
+            }
+        }
+    }
+
+    // Capture clipboard text on WM_CLIPBOARDUPDATE (deduped against the last value we emitted).
+    fn capture_clipboard(&mut self) {
+        if let Some(s) = clipboard_text() {
+            let s = redact::redact(&s);
+            if s != self.last_clip && s.chars().count() >= 3 {
+                self.last_clip = s.clone();
+                emit(&serde_json::json!({
+                    "t": now_ms(), "source": "clipboard", "app": "Clipboard",
+                    "window_id": "Clipboard", "text": s,
+                }));
+            }
+        }
+    }
+}
+
+// WinEvent callback — runs on the main thread via the message loop. It does no capture itself; it
+// just (re)arms the debounce timer so a burst of events collapses to a single capture. We ignore
+// background chatter (clocks, progress bars firing VALUECHANGE) by reacting only when the event's
+// top-level window is the current foreground window — otherwise a busy background app could keep
+// resetting the timer and starve a real capture.
+unsafe extern "system" fn win_event_proc(
+    _hook: HWINEVENTHOOK,
+    _event: u32,
+    hwnd: HWND,
+    _id_object: i32,
+    _id_child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    if hwnd.0.is_null() {
+        return;
+    }
+    let msg_hwnd = HWND(MSG_HWND.load(Ordering::Relaxed) as *mut c_void);
+    if msg_hwnd.0.is_null() {
+        return;
+    }
+    let fg = GetForegroundWindow();
+    let root = GetAncestor(hwnd, GA_ROOT);
+    if root.0 != fg.0 {
+        return;
+    }
+    SetTimer(msg_hwnd, TIMER_ID, DEBOUNCE_MS, None);
+}
+
+// Window proc for the message-only window: the debounce timer and clipboard listener post here.
+unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    match msg {
+        WM_TIMER => {
+            let _ = KillTimer(hwnd, TIMER_ID); // one-shot — re-armed by the next event
+            STATE.with(|s| {
+                if let Some(c) = s.borrow_mut().as_mut() {
+                    c.capture_foreground();
+                }
+            });
+            LRESULT(0)
+        }
+        WM_CLIPBOARDUPDATE => {
+            STATE.with(|s| {
+                if let Some(c) = s.borrow_mut().as_mut() {
+                    c.capture_clipboard();
+                }
+            });
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
 fn main() {
-    // WinRT (OCR async .get()) + UIA (COM) need an initialized apartment on this thread.
+    // WinRT (OCR async .get()) + UIA (COM) need an initialized apartment on this thread. MTA so
+    // cross-process UIA/COM calls block without pumping our message queue (avoids re-entering STATE).
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
 
-    let uia = uia::Uia::new();   // None if UIA is unavailable → pure OCR (safe degrade)
+    let uia = uia::Uia::new(); // None if UIA is unavailable → pure OCR (safe degrade)
 
     let Some(engine) = ocr::Engine::new() else {
         std::process::exit(1);
@@ -184,104 +364,82 @@ fn main() {
     let excludes = split_env("CONTINUUM_EXCLUDE");
     let allow = split_env("CONTINUUM_ALLOW");
 
-    // Per-window change/emit cache, FIFO-bounded so a long-running session can't grow it without
-    // limit. value = (last screen hash, last emit time ms); the oldest window is evicted when full.
-    let mut win: HashMap<String, (u64, i64)> = HashMap::new();
-    let mut order: VecDeque<String> = VecDeque::new();
-    let mut clip_seq = unsafe { GetClipboardSequenceNumber() };
-    let mut last_clip = String::new();
+    STATE.with(|s| {
+        *s.borrow_mut() = Some(Capturer {
+            uia,
+            engine,
+            self_app,
+            allow,
+            excludes,
+            win: HashMap::new(),
+            order: VecDeque::new(),
+            last_clip: String::new(),
+        });
+    });
 
-    let base = Duration::from_millis(1200);
-    let mut idle_ticks = 0u64;
+    unsafe {
+        let hmod = GetModuleHandleW(None).unwrap_or_default();
+        let hinst = HINSTANCE(hmod.0);
 
-    eprintln!("continuum-capture: running (OCR-first) -> NDJSON CaptureEvents on stdout");
+        // Message-only window to receive the debounce timer + clipboard-update messages.
+        let class_name: Vec<u16> = "ContinuumCaptureMsgWnd\0".encode_utf16().collect();
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(wnd_proc),
+            hInstance: hinst,
+            lpszClassName: PCWSTR(class_name.as_ptr()),
+            ..Default::default()
+        };
+        RegisterClassW(&wc);
 
-    loop {
-        let mut did_work = false;
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            PCWSTR(class_name.as_ptr()),
+            PCWSTR(class_name.as_ptr()),
+            WINDOW_STYLE(0),
+            0,
+            0,
+            0,
+            0,
+            HWND_MESSAGE,
+            HMENU::default(),
+            hinst,
+            None,
+        )
+        .expect("create message-only window");
+        MSG_HWND.store(hwnd.0 as isize, Ordering::Relaxed);
 
-        // --- focused-window capture: UIA clean text first, OCR fallback ---
-        let hwnd = unsafe { GetForegroundWindow() };
-        if !hwnd.0.is_null() {
-            let app = app_name(hwnd);
-            let title = window_title(hwnd);
-            let hay = format!("{app} {title}").to_lowercase();   // match allow/exclude on app + title
-            let allowed = allow.is_empty() || allow.iter().any(|p| hay.contains(p));
-            let skip = !allowed
-                || app.to_lowercase() == self_app
-                || excludes.iter().any(|e| hay.contains(e));
-            if !skip {
-                let window_id = format!("{app}|{title}");
-                let mut handled = false;
+        // Clipboard: event-driven (replaces the sequence-number poll).
+        let _ = AddClipboardFormatListener(hwnd);
 
-                // 1) UIA — the clean structured text (email body, chat, ticket). Primary where it
-                //    works; the content OCR can't read (WebView2/RichEdit) lives here.
-                if let Some(u) = &uia {
-                    if let Some(raw) = u.text(hwnd, 6000) {
-                        handled = true;                       // UIA produced text → don't also OCR
-                        let text = redact::redact(&raw);
-                        let sig = fnv1a(&text);               // exact change gate (text, not pixels)
-                        let changed = win.get(&window_id).map_or(true, |&(prev, _)| prev != sig);
-                        if changed && !is_sensitive(&text) {
-                            touch(&mut win, &mut order, &window_id, sig);
-                            let now = now_ms();
-                            let recent = win.get(&window_id).is_some_and(|&(_, le)| le != 0 && now - le < 400);
-                            if text.chars().count() >= 20 && !recent {
-                                if let Some(slot) = win.get_mut(&window_id) { slot.1 = now; }
-                                emit_text(now, "uia", &app, &window_id, &title, &text);
-                                did_work = true;
-                            }
-                        }
-                    }
-                }
+        // WinEvent hooks (out-of-context → delivered to this thread's message loop). One for the
+        // foreground/window-switch event, one spanning focus → value-change (covers name-change too).
+        let flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+        let _hook_fg = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            HMODULE::default(),
+            Some(win_event_proc),
+            0,
+            0,
+            flags,
+        );
+        let _hook_obj = SetWinEventHook(
+            EVENT_OBJECT_FOCUS,
+            EVENT_OBJECT_VALUECHANGE,
+            HMODULE::default(),
+            Some(win_event_proc),
+            0,
+            0,
+            flags,
+        );
 
-                // 2) OCR fallback — apps whose text UIA can't expose (or UIA unavailable).
-                if !handled {
-                    if let Some(frame) = capture::capture(hwnd) {
-                        let h = capture::dhash(&frame);
-                        // architecture: pHash Hamming < 5 == "same screen" → skip OCR
-                        let changed = win.get(&window_id).map_or(true, |&(prev, _)| capture::hamming(prev, h) >= 5);
-                        if changed {
-                            touch(&mut win, &mut order, &window_id, h);
-                            if let Some(raw) = engine.run(&frame) {
-                                let text = redact::redact(&raw);
-                                let t = text.trim();
-                                let now = now_ms();
-                                let recent = win.get(&window_id).is_some_and(|&(_, le)| le != 0 && now - le < 400);
-                                if t.chars().count() >= 20 && !recent && !is_sensitive(t) {
-                                    if let Some(slot) = win.get_mut(&window_id) { slot.1 = now; }
-                                    emit_text(now, "ocr", &app, &window_id, &title, t);
-                                    did_work = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        eprintln!("continuum-capture: running (event-driven) -> NDJSON CaptureEvents on stdout");
+
+        // Pump messages forever — timers, clipboard updates, and WinEvent callbacks all dispatch here.
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
         }
-
-        // --- clipboard (sequence-number poll) ---
-        let seq = unsafe { GetClipboardSequenceNumber() };
-        if seq != clip_seq {
-            clip_seq = seq;
-            if let Some(s) = clipboard_text() {
-                let s = redact::redact(&s);
-                if s != last_clip && s.chars().count() >= 3 {
-                    last_clip = s.clone();
-                    emit(&serde_json::json!({
-                        "t": now_ms(), "source": "clipboard", "app": "Clipboard",
-                        "window_id": "Clipboard", "text": s,
-                    }));
-                    did_work = true;
-                }
-            }
-        }
-
-        // Adaptive backoff: responsive while active (1.2s), cheap when idle (up to ~2.8s).
-        if did_work {
-            idle_ticks = 0;
-        } else {
-            idle_ticks = (idle_ticks + 1).min(4);
-        }
-        sleep(base + Duration::from_millis(400 * idle_ticks));
     }
 }

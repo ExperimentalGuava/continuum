@@ -48,6 +48,17 @@ impl Uia {
         self.gather(&root, budget)
     }
 
+    // True if a secure (password) field currently has focus. The caller must suppress capture
+    // ENTIRELY when this holds — not fall through to OCR — so typed credentials are never recorded,
+    // not even as pixels. (text() also returns None on a focused password field, but None there means
+    // "no UIA text → try OCR"; this is the distinct "do not capture at all" signal.)
+    pub fn secure_focus(&self) -> bool {
+        unsafe { self.auto.GetFocusedElement() }
+            .ok()
+            .map(|el| is_password(&el))
+            .unwrap_or(false)
+    }
+
     fn gather(&self, el: &IUIAutomationElement, budget: isize) -> Option<String> {
         let mut out = String::new();
         let mut seen = HashSet::new();
