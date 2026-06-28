@@ -291,9 +291,10 @@ switch (cmd) {
     break;
   }
   case 'extract': {    // structured, typed content from captures: email/message/ticket/action + Office aggregates
-    const { llm } = buildDeps();
+    const cfg = loadConfig();
+    const { llm } = buildDeps(cfg);
     const { extractRecords } = await import('../daemon/stage4/extract.mjs');
-    const { records, office } = await extractRecords(loadEpisodes(), { llm });
+    const { records, office } = await extractRecords(loadEpisodes(), { llm, egress: cfg.capture.egress });
     console.log('continuum extract — structured content from your captures\n');
     const fmtWhen = (ms) => (ms ? new Date(ms).toLocaleString() : '');
     const by = {};

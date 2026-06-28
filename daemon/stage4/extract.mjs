@@ -42,6 +42,18 @@ function parseEmail(text) {
   const body = (t.match(/\bPreview[:\s]+([\s\S]+)$/i) || [])[1];
   return { from: clean(from), subject: clean(subject), when: clean(when), body: clean(body, 600) };
 }
+// Best-effort speaker for a chat capture (Teams/Slack). Heuristic baseline — the last "Name: msg" or
+// "Name  10:32" header it can find; the LLM refine does the accurate to/from/when split (Phase 3 is
+// explicitly lower-confidence than email, where the fields are labelled).
+function parseMessage(ep) {
+  const t = ep.text || '';
+  let from = '';
+  for (const ln of t.split(/[\n\r]+/)) {
+    const m = ln.trim().match(/^([A-Z][\w .'\-]{1,38}?)(?::|\s+\d{1,2}:\d{2})\s/);
+    if (m) from = m[1].trim();
+  }
+  return { from, text: clean(t, 600) };
+}
 function parseTicket(ep) {
   const t = ep.text || '';
   const key = (`${ep.title || ''} ${t}`.match(/\b[A-Z][A-Z0-9]+-\d+\b/) || [])[0] || null;
@@ -59,7 +71,7 @@ export function extractRecord(ep) {
   if (kind === 'office' || kind === 'other' || kind === 'web') return null;  // office → aggregate; web/other skipped
   const base = { kind, app: ep.app || '', at: atOf(ep), source_id: ep.id, owner: ownerOf(ep), summary: ep.structured?.summary || '' };
   if (kind === 'email') return { ...base, ...parseEmail(ep.text), direction: base.owner === 'me' ? 'out' : 'in' };
-  if (kind === 'message') return { ...base, from: base.owner === 'me' ? 'me' : '', to: '', when: '', text: clean(ep.text, 600) };
+  if (kind === 'message') { const m = parseMessage(ep); return { ...base, from: base.owner === 'me' ? 'me' : m.from, to: '', when: '', text: m.text }; }
   if (kind === 'ticket') return { ...base, ...parseTicket(ep) };
   if (kind === 'action') return { ...base, what: clean(ep.title || ep.text, 160), url_host: ep.url_host || null };
   return base;
@@ -104,12 +116,17 @@ export function aggregateOffice(episodes) {
 }
 
 // Turn episodes into typed records + the Office aggregate. LLM optional (refines email/message/ticket).
-export async function extractRecords(episodes, { llm } = {}) {
+// Privacy: with egress 'authored' (the default product setting), the LLM pass — the only off-device
+// hop — runs ONLY on content the user authored (owner=me), so other people's email/chat bodies are
+// never sent off the device. egress 'all' refines everything (heuristics still run offline regardless).
+export async function extractRecords(episodes, { llm, egress = 'all' } = {}) {
   const records = [];
   for (const ep of episodes || []) {
     let rec = extractRecord(ep);
     if (!rec) continue;
-    if (llm && (rec.kind === 'email' || rec.kind === 'message' || rec.kind === 'ticket')) rec = await refineRecord(ep, rec, llm);
+    const refinable = rec.kind === 'email' || rec.kind === 'message' || rec.kind === 'ticket';
+    const mayEgress = egress !== 'authored' || rec.owner === 'me';
+    if (llm && refinable && mayEgress) rec = await refineRecord(ep, rec, llm);
     records.push(rec);
   }
   return { records, office: aggregateOffice(episodes) };

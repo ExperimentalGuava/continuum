@@ -43,8 +43,9 @@ use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetAncestor, GetForegroundWindow,
     GetMessageW, GetWindowTextW, GetWindowThreadProcessId, KillTimer, PostQuitMessage,
-    RegisterClassW, SetTimer, TranslateMessage, EVENT_OBJECT_FOCUS, EVENT_OBJECT_VALUECHANGE,
-    EVENT_SYSTEM_FOREGROUND, GA_ROOT, HMENU, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WINDOW_STYLE,
+    RegisterClassW, SetTimer, TranslateMessage, EVENT_OBJECT_FOCUS, EVENT_OBJECT_INVOKED,
+    EVENT_OBJECT_VALUECHANGE, EVENT_SYSTEM_FOREGROUND, GA_ROOT, HMENU, HWND_MESSAGE, MSG,
+    WINDOW_EX_STYLE, WINDOW_STYLE,
     WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_CLIPBOARDUPDATE, WM_DESTROY, WM_TIMER,
     WNDCLASSW,
 };
@@ -182,16 +183,22 @@ fn is_sensitive(text: &str) -> bool {
     MARKERS.iter().any(|m| h.contains(m))
 }
 
-fn emit_text(now: i64, source: &str, app: &str, window_id: &str, title: &str, text: &str, authored: bool) {
+fn emit_text(now: i64, source: &str, app: &str, window_id: &str, title: &str, text: &str, authored: bool, url_host: Option<&str>) {
     let mut obj = serde_json::json!({ "t": now, "source": source, "app": app, "window_id": window_id, "text": text });
     if !title.is_empty() { obj["title"] = serde_json::Value::String(title.to_string()); }
     if authored { obj["authored"] = serde_json::Value::Bool(true); }   // user is typing here → owner=me downstream
+    if let Some(h) = url_host { if !h.is_empty() { obj["url_host"] = serde_json::Value::String(h.to_string()); } }
     emit(&obj);
 }
 
 // MS Office apps — capture file name + dwell only (metadata aggregate), never the document/sheet body.
 fn is_office(app: &str) -> bool {
     matches!(app.to_lowercase().as_str(), "winword" | "excel" | "powerpnt")
+}
+
+// Browsers — where the work app is in the page, so we read the address bar for a url_host.
+fn is_browser(app: &str) -> bool {
+    matches!(app.to_lowercase().as_str(), "chrome" | "msedge" | "firefox" | "brave" | "opera" | "vivaldi")
 }
 
 // Office metadata event: the window title carries the file name; repeated emits coalesce downstream
@@ -242,6 +249,12 @@ impl Capturer {
 
         // Is the user typing here (vs reading)? Tags the capture as authored (owner = me downstream).
         let authored = self.uia.as_ref().map_or(false, |u| u.authored_focus());
+        // For browsers, read the address bar so web work apps are tagged by host, not title guessing.
+        let url_host = if is_browser(&app) {
+            self.uia.as_ref().and_then(|u| u.omnibox_url(hwnd))
+        } else {
+            None
+        };
 
         // 1) UIA — the clean structured text (email body, chat, ticket). Primary where it works; the
         //    content OCR can't read (WebView2/RichEdit) lives here.
@@ -258,7 +271,7 @@ impl Capturer {
                 if changed && !is_sensitive(&text) {
                     touch(&mut self.win, &mut self.order, &window_id, sig);
                     if text.chars().count() >= 20 {
-                        emit_text(now_ms(), "uia", &app, &window_id, &title, &text, authored);
+                        emit_text(now_ms(), "uia", &app, &window_id, &title, &text, authored, url_host.as_deref());
                     }
                 }
                 return; // UIA produced text → don't also OCR
@@ -279,7 +292,7 @@ impl Capturer {
                     let text = redact::redact(&raw);
                     let t = text.trim();
                     if t.chars().count() >= 20 && !is_sensitive(t) {
-                        emit_text(now_ms(), "ocr", &app, &window_id, &title, t, authored);
+                        emit_text(now_ms(), "ocr", &app, &window_id, &title, t, authored, url_host.as_deref());
                     }
                 }
             }
@@ -448,6 +461,17 @@ fn main() {
         let _hook_obj = SetWinEventHook(
             EVENT_OBJECT_FOCUS,
             EVENT_OBJECT_VALUECHANGE,
+            HMODULE::default(),
+            Some(win_event_proc),
+            0,
+            0,
+            flags,
+        );
+        // Clicks/actions (button, link, menu item) — INVOKED sits outside the focus→valuechange range,
+        // so a separate hook. Capturing the foreground after an action records what the click did.
+        let _hook_invoke = SetWinEventHook(
+            EVENT_OBJECT_INVOKED,
+            EVENT_OBJECT_INVOKED,
             HMODULE::default(),
             Some(win_event_proc),
             0,

@@ -35,7 +35,7 @@ export function writeRawConfig(obj) { fs.mkdirSync(DATA_DIR, { recursive: true }
 
 const DEFAULTS = {
   tier: 'free',
-  capture:    { source: 'screen', exclude: [], audio: false, allow: allowPatterns() },  // screen (OCR) | ax; allow = only these work apps (by name OR window title; [] = capture all); exclude = never captured; audio = meetings (opt-in)
+  capture:    { source: 'screen', exclude: [], audio: false, allow: allowPatterns(), egress: 'authored' },  // screen (OCR) | ax; allow = only these work apps (by name OR window title; [] = capture all); exclude = never captured; audio = meetings (opt-in); egress = what may leave the device on the LLM pass: 'authored' (only your own content) | 'all'
   files:      { watch: [] },                          // dirs to capture writes from, e.g. ["~/Documents", "~/code"]
   embeddings: { provider: 'local', model: '' },     // local | ollama | openai | api
   llm:        { provider: 'none',  model: '' },      // none | ollama | openai | anthropic

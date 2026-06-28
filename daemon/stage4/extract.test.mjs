@@ -62,5 +62,16 @@ const fakeLLM = async () => '{"to":"team@example.com"}';
 const refined = await extractRecords([emailEp], { llm: fakeLLM });
 ok('LLM refine merges missing field', refined.records[0].to === 'team@example.com', `to=${refined.records[0].to}`);
 
+// message attribution (heuristic baseline)
+const chatEp = { id: 'm2', app: 'teams', title: 'Chat | Microsoft Teams', end: NOW, source_mix: ['uia'], text: 'Alice 10:32 AM Can you review the deck before Friday' };
+ok('message speaker parsed (heuristic)', extractRecord(chatEp).from === 'Alice', `from=${extractRecord(chatEp).from}`);
+
+// privacy egress: 'authored' must NOT send others' content to the LLM, but still refines your own
+const authoredEmail = { ...emailEp, id: 'e2', source_mix: ['uia', 'input'] };  // owner = me
+const otherOnly = await extractRecords([emailEp], { llm: fakeLLM, egress: 'authored' });
+ok('egress=authored skips LLM on others’ content', !otherOnly.records[0].to, `to=${otherOnly.records[0].to}`);
+const mineRefined = await extractRecords([authoredEmail], { llm: fakeLLM, egress: 'authored' });
+ok('egress=authored still refines your own content', mineRefined.records[0].to === 'team@example.com', `to=${mineRefined.records[0].to}`);
+
 console.log(`\n${fail === 0 ? '✅' : '❌'}  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

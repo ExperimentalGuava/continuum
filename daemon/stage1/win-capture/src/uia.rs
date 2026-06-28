@@ -8,13 +8,13 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-    IUIAutomationValuePattern, UIA_ButtonControlTypeId, UIA_CONTROLTYPE_ID,
+    IUIAutomationTreeWalker, IUIAutomationValuePattern, UIA_ButtonControlTypeId, UIA_CONTROLTYPE_ID,
     UIA_DocumentControlTypeId, UIA_EditControlTypeId, UIA_HeaderControlTypeId,
     UIA_HeaderItemControlTypeId, UIA_ImageControlTypeId, UIA_MenuBarControlTypeId,
     UIA_MenuControlTypeId, UIA_MenuItemControlTypeId, UIA_ScrollBarControlTypeId,
-    UIA_SeparatorControlTypeId, UIA_SpinnerControlTypeId, UIA_TabControlTypeId,
-    UIA_TabItemControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId, UIA_TitleBarControlTypeId,
-    UIA_ToolBarControlTypeId, UIA_ValuePatternId,
+    UIA_SeparatorControlTypeId, UIA_SpinnerControlTypeId, UIA_StatusBarControlTypeId,
+    UIA_TabControlTypeId, UIA_TabItemControlTypeId, UIA_TextPatternId, UIA_ThumbControlTypeId,
+    UIA_TitleBarControlTypeId, UIA_ToolBarControlTypeId, UIA_ValuePatternId,
 };
 
 pub struct Uia {
@@ -81,6 +81,16 @@ impl Uia {
         false
     }
 
+    // Best-effort URL host for a browser window — read from the address bar (an Edit whose value is a
+    // URL). Lets downstream reliably tag web work apps (Jira/ServiceNow/Anaplan) by host, not title
+    // guessing. A bounded tree walk (the address bar sits near the top); None if not found.
+    pub fn omnibox_url(&self, hwnd: HWND) -> Option<String> {
+        let root = unsafe { self.auto.ElementFromHandle(hwnd) }.ok()?;
+        let walker = unsafe { self.auto.ControlViewWalker() }.ok()?;
+        let mut budget = 400i32;
+        find_url(&walker, &root, 0, &mut budget)
+    }
+
     fn gather(&self, el: &IUIAutomationElement, budget: isize) -> Option<String> {
         let mut out = String::new();
         let mut seen = HashSet::new();
@@ -105,8 +115,60 @@ fn is_chrome(ct: UIA_CONTROLTYPE_ID) -> bool {
         UIA_TabItemControlTypeId, UIA_ToolBarControlTypeId, UIA_TitleBarControlTypeId,
         UIA_SeparatorControlTypeId, UIA_ThumbControlTypeId, UIA_SpinnerControlTypeId,
         UIA_ImageControlTypeId, UIA_HeaderControlTypeId, UIA_HeaderItemControlTypeId,
+        UIA_StatusBarControlTypeId,   // drops Outlook's "This folder is up to date / Connected to…" noise
     ];
     CHROME.contains(&ct)
+}
+
+// Parse the host out of a URL-ish string (the browser address bar's value). None if it doesn't look
+// like a domain — so non-URL Edit fields (search boxes, forms) don't masquerade as a url_host.
+fn url_host(s: &str) -> Option<String> {
+    let s = s.trim();
+    if s.is_empty() || s.contains(' ') {
+        return None;
+    }
+    let rest = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")).unwrap_or(s);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = host.rsplit('@').next().unwrap_or(host); // strip any userinfo
+    let host = host.split(':').next().unwrap_or(host);   // strip port
+    if host.contains('.') && host.len() <= 253 && !host.is_empty() {
+        Some(host.to_lowercase())
+    } else {
+        None
+    }
+}
+
+// Bounded DFS for the first Edit element whose value is a URL (the address bar). Depth- and
+// node-capped so a deep page tree can't make this expensive on every browser capture.
+fn find_url(walker: &IUIAutomationTreeWalker, el: &IUIAutomationElement, depth: i32, budget: &mut i32) -> Option<String> {
+    if *budget <= 0 || depth > 12 {
+        return None;
+    }
+    *budget -= 1;
+    if let Ok(ct) = unsafe { el.CurrentControlType() } {
+        if ct == UIA_EditControlTypeId {
+            if let Ok(pat) = unsafe { el.GetCurrentPattern(UIA_ValuePatternId) } {
+                if let Ok(vp) = pat.cast::<IUIAutomationValuePattern>() {
+                    if let Ok(v) = unsafe { vp.CurrentValue() } {
+                        if let Some(h) = url_host(&v.to_string()) {
+                            return Some(h);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut child = unsafe { walker.GetFirstChildElement(el) }.ok();
+    while let Some(c) = child {
+        if *budget <= 0 {
+            break;
+        }
+        if let Some(h) = find_url(walker, &c, depth + 1, budget) {
+            return Some(h);
+        }
+        child = unsafe { walker.GetNextSiblingElement(&c) }.ok();
+    }
+    None
 }
 
 // Keep only substantial strings (real prose, not 1-word UI labels), deduped. Strips object-
