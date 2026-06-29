@@ -36,7 +36,7 @@ const hasCargo = () => { try { execFileSync('cargo', ['--version'], { stdio: 'ig
 // 'screen' and 'ax' both map to it for now (the OCR daemon is the universal path; a UIA-based
 // accelerator is a later addition). Audio capture isn't available on Windows yet.
 function ensureWinHelper(name) {
-  if (name === 'audio') { console.error('Audio capture is not available on Windows yet.'); return null; }
+  if (name === 'audio') { console.error('Call transcription has no built helper yet — prototype runs via --stdin (see daemon/stage1/audio/README.md).'); return null; }
   const exe = 'continuum-capture.exe';
   const crate = path.join(STAGE1, 'win-capture');
   const built = path.join(crate, 'target', 'release', exe);     // dev/clone: cargo's output dir
@@ -173,14 +173,27 @@ async function start() {
     captureChild = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
     createInterface({ input: captureChild.stdout }).on('line', onLine);
 
-    if (cfg.capture.audio) {   // #10: opt-in meeting capture (mic + system audio), on-device, transcribe-then-delete
+    // Call transcription (#10) — OPT-IN, OFF BY DEFAULT. Reconciled lifecycle so the dashboard toggle
+    // and the instant kill-switch take effect WITHOUT a restart: the helper runs only while the master
+    // flag is on AND no `audio-off` sentinel exists. "off" means no process, immediately — important
+    // for a call-recording feature. On-device, transcribe-then-delete; the helper tags each utterance
+    // speaker:'you'|'them' (mic vs process loopback), and per-speaker egress keeps the remote party local.
+    const AUDIO_OFF = path.join(DATA_DIR, 'audio-off');
+    let audioHelperMissing = false;
+    const audioWanted = () => loadConfig().capture.audio && !fs.existsSync(AUDIO_OFF);
+    const startAudio = () => {
+      if (audioChild || audioHelperMissing) return;
       const abin = ensureHelper('audio');
-      if (abin) {
-        audioChild = spawn(abin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
-        createInterface({ input: audioChild.stdout }).on('line', onLine);
-        console.error('  + audio capture on (meetings; on-device, transcribe-then-delete)');
-      }
-    }
+      if (!abin) { audioHelperMissing = true; return; }   // no native helper yet (see daemon/stage1/audio)
+      audioChild = spawn(abin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
+      createInterface({ input: audioChild.stdout }).on('line', onLine);
+      audioChild.on('exit', () => { audioChild = null; });
+      console.error('  + call transcription ON (on-device, transcribe-then-delete)');
+    };
+    const stopAudio = () => { if (audioChild) { try { audioChild.kill(); } catch { /* gone */ } audioChild = null; console.error('  + call transcription stopped'); } };
+    if (audioWanted()) startAudio();
+    // reconcile so the dashboard switch / kill sentinel applies live (no restart)
+    setInterval(() => { if (audioWanted()) startAudio(); else stopAudio(); }, 2000);
   }
 
   if (cfg.files.watch.length) { watchFiles(cfg.files.watch, ingest); console.error(`  + watching files in: ${cfg.files.watch.join(', ')}`); }

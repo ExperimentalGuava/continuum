@@ -82,6 +82,7 @@ function state() {
     sources: [...new Set(eps.flatMap((e) => e.source_mix || []))].sort(),
     mcp: { claude: mcpInstalled(), queries: recentMcpQueries() },
     daemon: daemonState(),
+    audio: audioState(),
     stats: computeStats(eps),
   };
 }
@@ -179,6 +180,24 @@ function setPause(on) {
   if (on) fs.writeFileSync(PAUSE, String(Date.now()));
   else { try { fs.unlinkSync(PAUSE); } catch { /* already off */ } }
   return { paused: fs.existsSync(PAUSE) };
+}
+
+// Call transcription (opt-in, off by default). enabled = master config; off = instant kill sentinel
+// the daemon polls; recording = actually capturing right now. Three independent off-switches.
+const AUDIO_OFF = path.join(DATA_DIR, 'audio-off');
+function audioState() {
+  const enabled = !!cfg().capture.audio;
+  const off = fs.existsSync(AUDIO_OFF);
+  return { enabled, off, recording: enabled && !off && daemonState().running };
+}
+function setAudio(on) {
+  const raw = readRawConfig();
+  raw.capture = raw.capture || {};
+  raw.capture.audio = !!on;
+  writeRawConfig(raw);
+  if (on) { try { fs.unlinkSync(AUDIO_OFF); } catch { /* already on */ } }
+  else fs.writeFileSync(AUDIO_OFF, String(Date.now()));   // instant kill — daemon stops the helper within ~2s
+  return audioState();
 }
 
 function delEpisode(hash) {
@@ -540,6 +559,8 @@ function renderPrivacy(){
       '<div class=line><span class=k>'+dstat+'</span>'+dbtn+'</div></div>'+
     '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
       '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused — capture is held; the session stays open.':'Live — capturing while the daemon runs. Pause holds capture without ending the session.')+'</p></div>'+
+    '<div class=block><div class=line><span class=k>Call transcription'+((st.audio&&st.audio.recording)?' <span class=dot style="background:var(--danger)"></span>':'')+'</span><div class="sw'+((st.audio&&st.audio.enabled&&!st.audio.off)?' on':'')+'" id=audiosw><span class=knob></span></div></div>'+
+      '<p style="margin-top:12px;margin-bottom:0">'+((st.audio&&st.audio.recording)?'Recording — transcribing the call on-device.':(st.audio&&st.audio.enabled&&!st.audio.off)?'On (idle) — will transcribe Teams calls on-device when one is active.':'Off. Transcribes Teams calls on-device (transcribe-then-delete); your track and the other party are separate, and the remote side never leaves this device. Toggling off is an instant kill-switch.')+'</p></div>'+
     '<div class=block><h3>Excluded apps</h3><p>Apps Continuum should never capture. Applies next time you start capture.</p>'+excl+
       '<div class=addrow><select id=exsel>'+(opts||'<option value="">(no apps yet)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
     '<div class=block><h3>Connect to Claude</h3><p>Let Claude read your memory over MCP.</p><div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
@@ -614,6 +635,7 @@ main.addEventListener('click',function(e){
   var dst=t.closest('#daemon-start');if(dst){send('/api/daemon/start','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
   var dsp=t.closest('#daemon-stop');if(dsp){send('/api/daemon/stop','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
   var sw=t.closest('#pausesw');if(sw){send('/api/pause','POST',{paused:!S.state.paused}).then(function(){loadState(true);});return;}
+  var asw=t.closest('#audiosw');if(asw){var on=S.state.audio&&S.state.audio.enabled&&!S.state.audio.off;send('/api/audio','POST',{enabled:!on}).then(function(){loadState(true);});return;}
   var ex=t.closest('#exadd');if(ex){var v=document.getElementById('exsel').value;if(v)send('/api/exclude','POST',{app:v}).then(function(){loadState(true);});return;}
   var ux=t.closest('[data-unexcl]');if(ux){send('/api/exclude','POST',{app:ux.dataset.unexcl,remove:true}).then(function(){loadState(true);});return;}
   var cl=t.closest('[data-clear]');if(cl){var sc=cl.dataset.clear,lbl=sc==='all'?'everything':sc==='today'?"today's memory":'the last hour';if(confirm('Delete '+lbl+'? This cannot be undone.'))send('/api/clear','POST',{scope:sc}).then(function(){loadState(true);});return;}
@@ -650,6 +672,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/ask' && req.method === 'POST') return json(res, await ask((await body(req)).query || ''));
     if (p === '/api/exclude' && req.method === 'POST') { const b = await body(req); return json(res, setExclude(b.app, b.remove)); }
     if (p === '/api/pause' && req.method === 'POST') return json(res, setPause(!!(await body(req)).paused));
+    if (p === '/api/audio' && req.method === 'POST') return json(res, setAudio(!!(await body(req)).enabled));
+    if (p === '/api/audio') return json(res, audioState());
     if (p === '/api/daemon') return json(res, daemonState());
     if (p === '/api/daemon/start' && req.method === 'POST') return json(res, startDaemon());
     if (p === '/api/daemon/stop' && req.method === 'POST') return json(res, stopDaemon());
