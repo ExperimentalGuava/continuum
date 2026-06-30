@@ -171,11 +171,37 @@ fn find_url(walker: &IUIAutomationTreeWalker, el: &IUIAutomationElement, depth: 
     None
 }
 
+// Stable UI-furniture phrases (Office ribbon, status bar, folder-pane labels) that are never real
+// content — the noise that leaks in when focus is the folder pane and we fall back to the whole
+// window. Matched only against SHORT strings (each is its own UIA element Name), so a long email body
+// that happens to contain one of these words is never dropped.
+fn is_furniture(t: &str) -> bool {
+    if t.chars().count() > 80 {
+        return false;
+    }
+    const PHRASES: &[&str] = &[
+        "this folder is up to date", "all folders are up to date", "connectivity to your server",
+        "connected to: microsoft exchange", "items in view", "ribbon display options",
+        "quick access toolbar", "customize quick access toolbar", "minimize the folder pane",
+        "minimize the ribbon", "sort, arrange or filter messages", "you have not joined any groups",
+        "more commands", "text highlight color", "font color", "send/receive", "show all pinned panes",
+        "hide all pinned panes", "normal view", "reading view", "click here to always preview",
+        "select an item to read", "meet focused inbox", "try the new outlook",
+        "change to a white background", "type to search and use the up and down arrow keys",
+        "unread messages",
+    ];
+    let h = t.to_lowercase();
+    PHRASES.iter().any(|p| h.contains(p))
+}
+
 // Keep only substantial strings (real prose, not 1-word UI labels), deduped. Strips object-
 // replacement chars (U+FFFC, the image placeholders UIA returns) and collapses whitespace.
 fn push_text(s: &str, out: &mut String, seen: &mut HashSet<String>, remaining: &mut isize) {
     let cleaned: String = s.chars().filter(|c| *c != '\u{FFFC}').collect();
     let t = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if is_furniture(&t) {
+        return;
+    }
     let words = t.split(' ').filter(|w| !w.is_empty()).count();
     let n = t.chars().count();
     if (words >= 3 || n >= 24) && n <= 5000 && !seen.contains(&t) {
