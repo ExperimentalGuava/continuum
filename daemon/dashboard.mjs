@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
-import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder } from './store.mjs';
+import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder, loadReminders } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
 import { classifyKind } from './stage4/extract.mjs';
 import { remindList } from './stage4/reminders.mjs';
@@ -71,6 +71,15 @@ function recentMcpQueries(n = 8) {
   catch { return []; }
 }
 
+// A compact "what was captured" summary for the landing page (and the same shape the AI sees).
+function summaryData(eps) {
+  const t0 = startOfToday();
+  const today = eps.filter((e) => (e.end || e.start || 0) >= t0);
+  const byKind = {};
+  for (const e of today) { const k = classifyKind(e); if (k && k !== 'other') byKind[k] = (byKind[k] || 0) + 1; }
+  return { today: today.length, total: eps.length, byKind, reminders: loadReminders().filter((r) => !r.done).length, drafts: loadDrafts().length };
+}
+
 function state() {
   const eps = loadEpisodes();
   return {
@@ -86,6 +95,7 @@ function state() {
     audio: audioState(),
     lastAction: readLastAction(),
     stats: computeStats(eps),
+    summary: summaryData(eps),
   };
 }
 
@@ -487,14 +497,22 @@ function controlStatus(){
   var msg=dm.running?'Capturing your work apps. Output appears below as it&rsquo;s collected.':'Start the daemon to begin capturing. Output will appear here.';
   return '<div class=block><div class=line><span class=k>'+dot+'</span>'+btn+'</div><p style="margin-top:12px;margin-bottom:0">'+msg+'</p></div>';
 }
+function summaryBlock(){
+  var s=S.state&&S.state.summary; if(!s)return '';
+  var kinds=Object.keys(s.byKind||{}).sort(function(a,b){return s.byKind[b]-s.byKind[a];}).map(function(k){return s.byKind[k]+' '+esc(k);}).join('  ·  ');
+  return '<div class=block><div class=line><span class=k>Captured today</span><span class=v>'+(s.today||0)+' moment'+(s.today===1?'':'s')+'</span></div>'+
+    (kinds?'<p style="margin-top:10px;margin-bottom:0">'+kinds+'</p>':'')+
+    '<div class=btnrow style="margin-top:14px"><button class=btn data-go2=reminders>🔔 '+(s.reminders||0)+' reminder'+(s.reminders===1?'':'s')+'</button><button class=btn data-go2=drafts>✉️ '+(s.drafts||0)+' draft'+(s.drafts===1?'':'s')+'</button></div></div>';
+}
 function renderControl(){
   main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>Capture</h1>'+
     '<div id=cstatus style="margin-top:24px">'+controlStatus()+'</div>'+
-    '<div class=seclabel style="margin-top:34px">Captured this session</div>'+
+    '<div id=csum style="margin-top:16px">'+summaryBlock()+'</div>'+
+    '<div class=seclabel style="margin-top:30px">Captured this session</div>'+
     '<div class=rows id=feed><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
   loadFeed();
 }
-function refreshControl(){ var cs=document.getElementById('cstatus'); if(cs)cs.innerHTML=controlStatus(); loadFeed(); }
+function refreshControl(){ var cs=document.getElementById('cstatus'); if(cs)cs.innerHTML=controlStatus(); var su=document.getElementById('csum'); if(su)su.innerHTML=summaryBlock(); loadFeed(); }
 function loadFeed(){
   getJSON('/api/sessions').then(function(ss){
     S.sessions=ss;
@@ -681,6 +699,7 @@ main.addEventListener('click',function(e){
   var cp=t.closest('[data-copy]');if(cp){var dr=(S.drafts||[]).filter(function(x){return x.id===cp.dataset.copy;})[0];if(dr&&navigator.clipboard){navigator.clipboard.writeText(dr.body||'');cp.textContent='Copied';setTimeout(function(){cp.textContent='Copy';},1200);}return;}
   var dd=t.closest('[data-draftdel]');if(dd){send('/api/drafts','DELETE',{id:dd.dataset.draftdel}).then(function(){S.drafts=null;loadDraftsView();});return;}
   var rmd=t.closest('[data-remdone]');if(rmd){send('/api/reminders/done','POST',{id:rmd.dataset.remdone}).then(function(){S.reminders=null;loadRemindersView();});return;}
+  var g2=t.closest('[data-go2]');if(g2){go(g2.dataset.go2);return;}
   var ex=t.closest('#exadd');if(ex){var v=document.getElementById('exsel').value;if(v)send('/api/exclude','POST',{app:v}).then(function(){loadState(true);});return;}
   var ux=t.closest('[data-unexcl]');if(ux){send('/api/exclude','POST',{app:ux.dataset.unexcl,remove:true}).then(function(){loadState(true);});return;}
   var cl=t.closest('[data-clear]');if(cl){var sc=cl.dataset.clear,lbl=sc==='all'?'everything':sc==='today'?"today's memory":'the last hour';if(confirm('Delete '+lbl+'? This cannot be undone.'))send('/api/clear','POST',{scope:sc}).then(function(){loadState(true);});return;}

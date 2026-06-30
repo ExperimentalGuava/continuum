@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR } from './config.mjs';
 import { loadIndex, loadEpisodes, STORE_FILE } from './store.mjs';
-import { recall, catchUp, profile, snapshot } from './mcp.mjs';
+import { recall, catchUp, profile, snapshot, scrub } from './mcp.mjs';
+import { remindList } from './stage4/reminders.mjs';
 import { instructionsBlock, activePreferences } from './preferences.mjs';
 
 const { embed, llm } = buildDeps();
@@ -47,6 +48,12 @@ const TOOLS = [
       "Understand WHO this user is so you can tailor your help to them — what they're building, recurring people/projects/tools, how they think and write, their taste. Call it before giving generic advice on open-ended, creative, or work-related tasks so your answer fits them. Pass `topic` to focus (e.g. their taste in a specific area).",
     inputSchema: { type: 'object', properties: { topic: { type: 'string', description: "optional focus, e.g. 'design taste' or a project name" } } },
   },
+  {
+    name: 'reminders',
+    description:
+      "What the user needs to stay on top of — their explicit reminders, open commitments they made or were asked to do, and tickets with due dates (overdue first). Call it to proactively surface what's outstanding, remind them, or ground a 'what should I do next' answer in their real obligations rather than guessing.",
+    inputSchema: { type: 'object', properties: {} },
+  },
 ];
 
 const INSTRUCTIONS_BASE =
@@ -60,6 +67,10 @@ const text = (id, t) => ({ jsonrpc: '2.0', id, result: { content: [{ type: 'text
 const fmtResults = (rows) => rows.length
   ? rows.map((r, i) => `${i + 1}. [${r.when}] ${r.app} · ${r.who} · ${r.type}\n   ${r.text}\n   (id: ${r.id})`).join('\n\n')
   : 'No matching activity captured (yet). The user may not have done this on-device, or capture is paused.';
+
+const fmtReminders = (items) => items.length
+  ? items.map((it, i) => { const due = it.dueMs ? ` · due ${new Date(it.dueMs).toLocaleDateString()}` : ''; const flag = it.status === 'overdue' ? ' (OVERDUE)' : ''; const bucket = it.kind === 'waiting' ? 'awaiting other' : it.kind; return `${i + 1}. [${bucket}] ${scrub(it.text)}${due}${flag}${it.source ? ' · ' + it.source : ''}`; }).join('\n')
+  : 'Nothing outstanding right now — no open reminders, commitments, or due tickets.';
 
 function fmtProfile(p) {
   if (p.paused) return p.note;
@@ -103,6 +114,12 @@ async function handle(req) {
         audit('catch_up', args.window || 'today', rows.length);
         return text(id, fmtResults(rows));
       }
+      if (name === 'reminders') {
+        const ex = new Set(sc.exclude || []);
+        const items = await remindList(eps.filter((e) => !ex.has(e.app)), {});   // heuristic — no nested LLM egress
+        audit('reminders', '', items.length);
+        return text(id, fmtReminders(items));
+      }
       if (name === 'profile') {
         const p = await profile(eps, { ...args, llm, ...common });
         audit('profile', args.topic || '(general)', p.sources ? p.sources.length : 0);
@@ -120,7 +137,7 @@ async function handle(req) {
 }
 
 const rl = createInterface({ input: process.stdin });
-console.error('continuum mcp server ready (stdio) — recall · catch_up · profile');
+console.error('continuum mcp server ready (stdio) — recall · catch_up · profile · reminders');
 for await (const line of rl) {
   const s = line.trim(); if (!s) continue;
   let req; try { req = JSON.parse(s); } catch { continue; }
