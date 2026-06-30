@@ -45,7 +45,7 @@ const hasCargo = () => { try { execFileSync('cargo', ['--version'], { stdio: 'ig
 // 'screen' and 'ax' both map to it for now (the OCR daemon is the universal path; a UIA-based
 // accelerator is a later addition). Audio capture isn't available on Windows yet.
 function ensureWinHelper(name) {
-  if (name === 'audio') { console.error('Call transcription has no built helper yet — prototype runs via --stdin (see daemon/stage1/audio/README.md).'); return null; }
+  if (name === 'audio') { console.error('Call transcription has no built helper yet — prototype runs via --stdin (see daemon/stage1/audio-capture/README.md).'); return null; }
   const exe = 'continuum-capture.exe';
   const crate = path.join(STAGE1, 'win-capture');
   const built = path.join(crate, 'target', 'release', exe);     // dev/clone: cargo's output dir
@@ -202,7 +202,7 @@ async function start() {
     const startAudio = () => {
       if (audioChild || audioHelperMissing) return;
       const abin = ensureHelper('audio');
-      if (!abin) { audioHelperMissing = true; return; }   // no native helper yet (see daemon/stage1/audio)
+      if (!abin) { audioHelperMissing = true; return; }   // no native helper yet (see daemon/stage1/audio-capture)
       audioChild = spawn(abin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
       createInterface({ input: audioChild.stdout }).on('line', onLine);
       audioChild.on('exit', () => { audioChild = null; });
