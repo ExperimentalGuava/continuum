@@ -18,9 +18,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, buildDeps, redacted, DATA_DIR, claudeConfigPath } from '../daemon/config.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
-import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession } from '../daemon/store.mjs';
+import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction } from '../daemon/store.mjs';
 import { candidates, approve, dismiss, activePreferences } from '../daemon/preferences.mjs';
 import { isCommand, runCommand } from '../daemon/stage4/voice.mjs';
+import { notify } from '../daemon/notify.mjs';
+
+// Feedback for a completed voice command: an OS toast + a last-action record the dashboard surfaces.
+const actionFeedback = (r) => {
+  const title = r.action === 'reminder' ? 'Reminder set' : r.action === 'draft' ? 'Draft ready' : 'Continuum';
+  notify(title, r.message);
+  writeLastAction({ t: Date.now(), ok: r.ok, action: r.action, message: r.message });
+};
 import { localEmbedder } from '../daemon/adapters.mjs';
 import { watchFiles } from '../daemon/stage1/files.mjs';
 import { runEval, formatReport } from '../daemon/eval/eval.mjs';
@@ -164,7 +172,7 @@ async function start() {
     let ev; try { ev = JSON.parse(s); } catch { return; }   // skip bad line
     // A spoken command ("Continuum, remind me to…") → act on it, don't store it as an episode.
     if (ev && ev.source === 'audio' && isCommand(ev.text)) {
-      runCommand(ev.text, { llm: deps.llm }).then((r) => console.error(`  ⟳ ${r.message}`)).catch(() => {});
+      runCommand(ev.text, { llm: deps.llm }).then(actionFeedback).catch(() => {});
       return;
     }
     ingest(ev);
@@ -379,6 +387,7 @@ switch (cmd) {
     if (!text) { console.log('usage: continuum say "<command>"   e.g. "remind me to call the auditor friday"'); break; }
     const { llm } = buildDeps();
     const r = await runCommand(text, { llm });
+    actionFeedback(r);
     console.log(r.message);
     break;
   }

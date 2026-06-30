@@ -16,6 +16,9 @@ export const REMINDERS_FILE = path.join(DATA_DIR, 'reminders.ndjson');
 // Email drafts the assistant composed (by voice): { id, to?, subject?, body, created }. Persisted to
 // disk (not held in memory) so the dashboard can show them on demand without a RAM cost.
 export const DRAFTS_FILE = path.join(DATA_DIR, 'drafts.ndjson');
+// The most recent voice action ({ t, ok, action, message }) — the dashboard polls this to show a
+// confirmation toast even when the native OS toast was missed.
+export const LAST_ACTION_FILE = path.join(DATA_DIR, 'last-action.json');
 
 export function appendEpisode(ep) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -76,6 +79,14 @@ export function completeReminder(id) {
   r.done = true;
   fs.writeFileSync(REMINDERS_FILE, all.map((x) => JSON.stringify(x)).join('\n') + (all.length ? '\n' : ''));
   return true;
+}
+
+// --- last voice action (feedback surface) ---
+export function writeLastAction(a) {
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(LAST_ACTION_FILE, JSON.stringify(a)); } catch { /* non-fatal */ }
+}
+export function readLastAction() {
+  try { return JSON.parse(fs.readFileSync(LAST_ACTION_FILE, 'utf8')); } catch { return null; }
 }
 
 // --- email drafts (voice) ---

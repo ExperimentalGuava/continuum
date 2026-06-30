@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
-import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft } from './store.mjs';
+import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
 import { classifyKind } from './stage4/extract.mjs';
 import { extractStated, extractInferred, activePreferences, loadStore as prefStore, approve as prefApprove, dismiss as prefDismiss, removeApproved as prefRemove } from './preferences.mjs';
@@ -83,6 +83,7 @@ function state() {
     mcp: { claude: mcpInstalled(), queries: recentMcpQueries() },
     daemon: daemonState(),
     audio: audioState(),
+    lastAction: readLastAction(),
     stats: computeStats(eps),
   };
 }
@@ -355,6 +356,8 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 .btn.solid{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 32%,var(--line))}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(16px);max-width:440px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:13px;padding:13px 18px;font-size:14.5px;color:var(--fg);opacity:0;pointer-events:none;transition:opacity .25s var(--ease),transform .25s var(--ease);z-index:60}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--faint);display:inline-block;flex:none;margin-right:7px;vertical-align:middle}
 .dot.on{background:var(--green)}
 .dot.warn{background:#d98324}
@@ -392,6 +395,7 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 </div>
 <main id=main></main>
 <div class=scrim id=scrim></div>
+<div class=toast id=toast></div>
 <div class=sheet id=sheet>
   <button class=mi data-go=home><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=11 cy=11 r="7"/><path d="m21 21-4.3-4.3"/></svg>Today<span class=sub>insights &amp; ask</span></button>
   <button class=mi data-go=timeline><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r="9"/><path d="M12 7v5l3 2"/></svg>Timeline<span class=sub>all moments</span></button>
@@ -673,7 +677,8 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){if(sheet.classList.contains('on'))closeMenu();else if(S.result||S.view!=='home')home();}
 });
 
-function loadState(re){return getJSON('/api/state').then(function(s){S.state=s;var sub=document.getElementById('mcpsub');if(sub){sub.textContent=s.mcp.claude?'connected':'MCP';sub.className=s.mcp.claude?'sub ok':'sub';}if(re)render();});}
+function showToast(msg){var el=document.getElementById('toast');if(!el)return;el.textContent='✓ '+msg;el.classList.add('on');clearTimeout(S._tt);S._tt=setTimeout(function(){el.classList.remove('on');},4500);}
+function loadState(re){return getJSON('/api/state').then(function(s){S.state=s;var sub=document.getElementById('mcpsub');if(sub){sub.textContent=s.mcp.claude?'connected':'MCP';sub.className=s.mcp.claude?'sub ok':'sub';}var la=s.lastAction&&s.lastAction.t?s.lastAction.t:0;if(S._laSeen===undefined)S._laSeen=la;else if(la&&la!==S._laSeen){S._laSeen=la;if(s.lastAction.message)showToast(s.lastAction.message);}if(re)render();});}
 /* after start/stop, poll a bit faster so the status indicator flips as daemon.json appears/clears */
 function bumpPoll(){var n=0;var iv=setInterval(function(){loadState(false).then(function(){if(S.view==='privacy')render();else if(S.view==='control')refreshControl();});if(++n>=6)clearInterval(iv);},1500);}
 loadState().then(render);
