@@ -10,6 +10,9 @@ export const STORE_FILE = path.join(DATA_DIR, 'episodes.ndjson');
 // One record per daemon run (activation session): { id, start, end?, host }. Episodes captured
 // during a run carry that run's `session_id`, so the dashboard can group "what this run collected".
 export const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.ndjson');
+// Explicit reminders the user creates (by voice or manually): { id, text, dueMs?, created, done }.
+// Distinct from commitments DERIVED from captured correspondence — those are extracted, not stored.
+export const REMINDERS_FILE = path.join(DATA_DIR, 'reminders.ndjson');
 
 export function appendEpisode(ep) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -49,6 +52,27 @@ export function discardSession(id) {
   const kept = loadSessions().filter((s) => s.id !== id);
   fs.writeFileSync(SESSIONS_FILE, kept.map((s) => JSON.stringify(s)).join('\n') + (kept.length ? '\n' : ''));
   return removed;
+}
+
+// --- explicit reminders (voice/manual) ---
+export function appendReminder(r) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.appendFileSync(REMINDERS_FILE, JSON.stringify(r) + '\n');
+}
+
+export function loadReminders() {
+  try { return fs.readFileSync(REMINDERS_FILE, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); }
+  catch { return []; }
+}
+
+// Mark a reminder done (idempotent). Returns true if one matched.
+export function completeReminder(id) {
+  const all = loadReminders();
+  const r = all.find((x) => x.id === id);
+  if (!r || r.done) return false;
+  r.done = true;
+  fs.writeFileSync(REMINDERS_FILE, all.map((x) => JSON.stringify(x)).join('\n') + (all.length ? '\n' : ''));
+  return true;
 }
 
 export async function loadIndex(embed) {
