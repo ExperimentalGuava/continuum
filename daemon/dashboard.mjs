@@ -408,14 +408,7 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 <div class=scrim id=scrim></div>
 <div class=toast id=toast></div>
 <div class=sheet id=sheet>
-  <button class=mi data-go=home><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=11 cy=11 r="7"/><path d="m21 21-4.3-4.3"/></svg>Today<span class=sub>insights &amp; ask</span></button>
-  <button class=mi data-go=timeline><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r="9"/><path d="M12 7v5l3 2"/></svg>Timeline<span class=sub>all moments</span></button>
-  <button class=mi data-go=sessions><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><rect x=3 y=4 width=18 height=4 rx=1/><rect x=3 y=11 width=18 height=4 rx=1/><rect x=3 y=18 width=14 height=2 rx=1/></svg>Sessions<span class=sub>capture runs</span></button>
-  <button class=mi data-go=reminders><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>Reminders<span class=sub>what to stay on top of</span></button>
-  <button class=mi data-go=drafts><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 4h16v12H5.2L4 17.2z"/><path d="M8 9h8M8 12h5"/></svg>Drafts<span class=sub>voice emails</span></button>
-  <button class=mi data-go=preferences><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 7h9M19 7h1M4 12h1M10 12h10M4 17h6M16 17h4"/><circle cx="16" cy="7" r="2"/><circle cx="7" cy="12" r="2"/><circle cx="13" cy="17" r="2"/></svg>Preferences<span class=sub>for agents</span></button>
   <button class=mi data-go=privacy><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Privacy &amp; data</button>
-  <div class=div></div>
   <button class=mi data-go=privacy id=mcprow><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg>Connect to Claude<span class=sub id=mcpsub>MCP</span></button>
 </div>
 <script>
@@ -489,41 +482,41 @@ function renderResult(){
   b.innerHTML=html;
 }
 
-/* ---------- CONTROL: start/stop the daemon + watch what it collects (landing page) ---------- */
-function controlStatus(){
+/* ---------- HOME: the whole simple dashboard — two switches, a summary, reminders, drafts ---------- */
+function controlSwitches(){
   var dm=(S.state&&S.state.daemon)||{running:false};
-  var dot=dm.running?'<span class="dot on"></span>Running'+(dm.start?' · since '+clock(dm.start):''):(dm.stopping?'<span class="dot warn"></span>Stopping&hellip;':'<span class=dot></span>Stopped');
-  var btn=dm.running?'<button class="btn danger" id=daemon-stop>Stop capture</button>':'<button class="btn solid" id=daemon-start'+(dm.stopping?' disabled':'')+'>Start capture</button>';
-  var msg=dm.running?'Capturing your work apps. Output appears below as it&rsquo;s collected.':'Start the daemon to begin capturing. Output will appear here.';
-  return '<div class=block><div class=line><span class=k>'+dot+'</span>'+btn+'</div><p style="margin-top:12px;margin-bottom:0">'+msg+'</p></div>';
+  var au=(S.state&&S.state.audio)||{};
+  var capOn=dm.running, micOn=!!(au.enabled&&!au.off);
+  var capDot=dm.stopping?'<span class="dot warn"></span>':capOn?'<span class="dot on"></span>':'';
+  var micDot=au.recording?'<span class=dot style="background:var(--danger)"></span>':'';
+  return '<div class=block>'+
+    '<div class=line><span class=k>'+capDot+'Capture</span><div class="sw'+(capOn?' on':'')+'" id=capturesw><span class=knob></span></div></div>'+
+    '<div class=line><span class=k>'+micDot+'Mic</span><div class="sw'+(micOn?' on':'')+'" id=micsw><span class=knob></span></div></div>'+
+    '<p style="margin-top:10px;margin-bottom:0">'+(capOn?('On — capturing your work apps'+(micOn?', mic listening for &ldquo;Continuum&rdquo; commands.':'.')):'Off. Flip Capture on to start.')+'</p></div>';
 }
 function summaryBlock(){
   var s=S.state&&S.state.summary; if(!s)return '';
   var kinds=Object.keys(s.byKind||{}).sort(function(a,b){return s.byKind[b]-s.byKind[a];}).map(function(k){return s.byKind[k]+' '+esc(k);}).join('  ·  ');
   return '<div class=block><div class=line><span class=k>Captured today</span><span class=v>'+(s.today||0)+' moment'+(s.today===1?'':'s')+'</span></div>'+
-    (kinds?'<p style="margin-top:10px;margin-bottom:0">'+kinds+'</p>':'')+
-    '<div class=btnrow style="margin-top:14px"><button class=btn data-go2=reminders>🔔 '+(s.reminders||0)+' reminder'+(s.reminders===1?'':'s')+'</button><button class=btn data-go2=drafts>✉️ '+(s.drafts||0)+' draft'+(s.drafts===1?'':'s')+'</button></div></div>';
+    (kinds?'<p style="margin-top:10px;margin-bottom:0">'+kinds+'</p>':'')+'</div>';
+}
+function draftRowCompact(d){
+  return '<div class=line><span class=k>✉️ '+esc(d.subject||'(no subject)')+(d.to?' &middot; <span style="color:var(--sec)">'+esc(d.to)+'</span>':'')+'</span>'+
+    '<span class=v><button class="btn solid" data-copy="'+esc(d.id)+'">Copy</button> <button class=btn data-draftdel="'+esc(d.id)+'">Delete</button></span></div>';
+}
+function loadControlLists(){
+  getJSON('/api/reminders').then(function(d){S.reminders=d;var el=document.getElementById('remblock');if(!el)return;el.innerHTML=d.length?d.map(reminderRow).join(''):'<p class=muted style="padding:4px 2px 12px">Nothing pressing. Say &ldquo;Continuum, remind me to&hellip;&rdquo;.</p>';});
+  getJSON('/api/drafts').then(function(d){S.drafts=d;var el=document.getElementById('draftblock');if(!el)return;el.innerHTML=d.length?d.map(draftRowCompact).join(''):'<p class=muted style="padding:4px 2px 12px">No drafts yet. Say &ldquo;Continuum, draft an email to&hellip;&rdquo;.</p>';});
 }
 function renderControl(){
-  main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>Capture</h1>'+
-    '<div id=cstatus style="margin-top:24px">'+controlStatus()+'</div>'+
-    '<div id=csum style="margin-top:16px">'+summaryBlock()+'</div>'+
-    '<div class=seclabel style="margin-top:30px">Captured this session</div>'+
-    '<div class=rows id=feed><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
-  loadFeed();
+  main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>Continuum</h1>'+
+    '<div id=cswitch style="margin-top:22px">'+controlSwitches()+'</div>'+
+    '<div id=csum style="margin-top:14px">'+summaryBlock()+'</div>'+
+    '<div class=seclabel style="margin-top:30px">Reminders</div><div class=block id=remblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
+    '<div class=seclabel style="margin-top:18px">Drafts</div><div class=block id=draftblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
+  loadControlLists();
 }
-function refreshControl(){ var cs=document.getElementById('cstatus'); if(cs)cs.innerHTML=controlStatus(); var su=document.getElementById('csum'); if(su)su.innerHTML=summaryBlock(); loadFeed(); }
-function loadFeed(){
-  getJSON('/api/sessions').then(function(ss){
-    S.sessions=ss;
-    var cur=ss.filter(function(s){return s.active;})[0]||ss[0];
-    var feed=document.getElementById('feed'); if(!feed)return;
-    if(!cur){feed.innerHTML='<div class=note>No capture yet. Click <b>Start capture</b> above.</div>';return;}
-    var prm=new URLSearchParams();prm.set('session',cur.id);
-    getJSON('/api/timeline?'+prm.toString()).then(function(rows){var f=document.getElementById('feed');if(!f)return;
-      f.innerHTML=rows.length?rows.map(function(r){return momentRow(r,'');}).join(''):'<div class=note>'+(cur.active?'Running &mdash; nothing captured yet. Switch to a work app (Outlook/Teams/&hellip;) and it&rsquo;ll appear here.':'No moments in this run.')+'</div>';});
-  });
-}
+function refreshControl(){ var sw=document.getElementById('cswitch'); if(sw)sw.innerHTML=controlSwitches(); var su=document.getElementById('csum'); if(su)su.innerHTML=summaryBlock(); loadControlLists(); }
 
 /* ---------- TIMELINE ---------- */
 function renderTimeline(){
@@ -699,7 +692,8 @@ main.addEventListener('click',function(e){
   var cp=t.closest('[data-copy]');if(cp){var dr=(S.drafts||[]).filter(function(x){return x.id===cp.dataset.copy;})[0];if(dr&&navigator.clipboard){navigator.clipboard.writeText(dr.body||'');cp.textContent='Copied';setTimeout(function(){cp.textContent='Copy';},1200);}return;}
   var dd=t.closest('[data-draftdel]');if(dd){send('/api/drafts','DELETE',{id:dd.dataset.draftdel}).then(function(){S.drafts=null;loadDraftsView();});return;}
   var rmd=t.closest('[data-remdone]');if(rmd){send('/api/reminders/done','POST',{id:rmd.dataset.remdone}).then(function(){S.reminders=null;loadRemindersView();});return;}
-  var g2=t.closest('[data-go2]');if(g2){go(g2.dataset.go2);return;}
+  var csw=t.closest('#capturesw');if(csw){var con=S.state.daemon&&S.state.daemon.running;send(con?'/api/daemon/stop':'/api/daemon/start','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
+  var msw=t.closest('#micsw');if(msw){var mon=S.state.audio&&S.state.audio.enabled&&!S.state.audio.off;send('/api/audio','POST',{enabled:!mon}).then(function(){loadState(true);});return;}
   var ex=t.closest('#exadd');if(ex){var v=document.getElementById('exsel').value;if(v)send('/api/exclude','POST',{app:v}).then(function(){loadState(true);});return;}
   var ux=t.closest('[data-unexcl]');if(ux){send('/api/exclude','POST',{app:ux.dataset.unexcl,remove:true}).then(function(){loadState(true);});return;}
   var cl=t.closest('[data-clear]');if(cl){var sc=cl.dataset.clear,lbl=sc==='all'?'everything':sc==='today'?"today's memory":'the last hour';if(confirm('Delete '+lbl+'? This cannot be undone.'))send('/api/clear','POST',{scope:sc}).then(function(){loadState(true);});return;}
@@ -708,7 +702,7 @@ main.addEventListener('click',function(e){
   if(t.closest('[data-pref-canceledit]')){S.editPref=null;renderPrefs();return;}
   var psv=t.closest('[data-pref-save]');if(psv){var inp=document.getElementById('pedit'),nv=inp?inp.value.trim():'',orig=((S.prefs.suggested||[]).concat(S.prefs.active||[])).filter(function(x){return x.id===psv.dataset.prefSave;})[0];if(nv){var bd={text:nv,kind:psv.dataset.kind};if(orig&&nv!==orig.text)bd.from=psv.dataset.prefSave;send('/api/preferences/approve','POST',bd).then(function(d){S.editPref=null;S.prefs=d;renderPrefs();});}return;}
   var pds=t.closest('[data-pref-dismiss]');if(pds){send('/api/preferences/dismiss','POST',{id:pds.dataset.prefDismiss}).then(function(d){S.prefs=d;renderPrefs();});return;}
-  var rowEl=t.closest('.row');if(rowEl&&rowEl.dataset.hash){S.open[rowEl.dataset.hash]=!S.open[rowEl.dataset.hash];if(S.view==='control')loadFeed();else if(S.view==='timeline')loadRows();else if(S.view==='sessions'&&S.sessionDetail)renderSessionDetail();else if(S.result)renderResult();else renderInsights();return;}
+  var rowEl=t.closest('.row');if(rowEl&&rowEl.dataset.hash){S.open[rowEl.dataset.hash]=!S.open[rowEl.dataset.hash];if(S.view==='timeline')loadRows();else if(S.view==='sessions'&&S.sessionDetail)renderSessionDetail();else if(S.result)renderResult();else renderInsights();return;}
 });
 main.addEventListener('input',function(e){if(e.target.id==='q'){clearTimeout(S._t);S.facet.q=e.target.value;S._t=setTimeout(loadRows,200);}else if(e.target.id==='ask'){S.query=e.target.value;}});
 main.addEventListener('keydown',function(e){if(e.target.id==='ask'&&e.key==='Enter')runAsk(e.target.value);else if(e.target.id==='pedit'&&e.key==='Enter'){var sb=document.querySelector('[data-pref-save]');if(sb)sb.click();}else if(e.target.id==='pedit'&&e.key==='Escape'){e.stopPropagation();S.editPref=null;renderPrefs();}});
