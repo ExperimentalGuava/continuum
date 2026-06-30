@@ -13,6 +13,9 @@ export const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.ndjson');
 // Explicit reminders the user creates (by voice or manually): { id, text, dueMs?, created, done }.
 // Distinct from commitments DERIVED from captured correspondence — those are extracted, not stored.
 export const REMINDERS_FILE = path.join(DATA_DIR, 'reminders.ndjson');
+// Email drafts the assistant composed (by voice): { id, to?, subject?, body, created }. Persisted to
+// disk (not held in memory) so the dashboard can show them on demand without a RAM cost.
+export const DRAFTS_FILE = path.join(DATA_DIR, 'drafts.ndjson');
 
 export function appendEpisode(ep) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -73,6 +76,24 @@ export function completeReminder(id) {
   r.done = true;
   fs.writeFileSync(REMINDERS_FILE, all.map((x) => JSON.stringify(x)).join('\n') + (all.length ? '\n' : ''));
   return true;
+}
+
+// --- email drafts (voice) ---
+export function appendDraft(d) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.appendFileSync(DRAFTS_FILE, JSON.stringify(d) + '\n');
+}
+
+export function loadDrafts() {
+  try { return fs.readFileSync(DRAFTS_FILE, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); }
+  catch { return []; }
+}
+
+// Remove a draft once used/dismissed. Returns # remaining.
+export function deleteDraft(id) {
+  const kept = loadDrafts().filter((d) => d.id !== id);
+  fs.writeFileSync(DRAFTS_FILE, kept.map((d) => JSON.stringify(d)).join('\n') + (kept.length ? '\n' : ''));
+  return kept.length;
 }
 
 export async function loadIndex(embed) {

@@ -20,6 +20,7 @@ import { loadConfig, buildDeps, redacted, DATA_DIR, claudeConfigPath } from '../
 import { Pipeline } from '../daemon/pipeline.mjs';
 import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession } from '../daemon/store.mjs';
 import { candidates, approve, dismiss, activePreferences } from '../daemon/preferences.mjs';
+import { isCommand, runCommand } from '../daemon/stage4/voice.mjs';
 import { localEmbedder } from '../daemon/adapters.mjs';
 import { watchFiles } from '../daemon/stage1/files.mjs';
 import { runEval, formatReport } from '../daemon/eval/eval.mjs';
@@ -158,7 +159,16 @@ async function start() {
   const PAUSE = path.join(DATA_DIR, 'paused');   // the dashboard Control toggle drops/removes this file
   let q = Promise.resolve();
   const ingest = (ev) => { if (fs.existsSync(PAUSE)) return; q = q.then(() => p.ingest(ev)).catch(() => {}); };
-  const onLine = (line) => { const s = line.trim(); if (!s) return; try { ingest(JSON.parse(s)); } catch { /* skip bad line */ } };
+  const onLine = (line) => {
+    const s = line.trim(); if (!s) return;
+    let ev; try { ev = JSON.parse(s); } catch { return; }   // skip bad line
+    // A spoken command ("Continuum, remind me to…") → act on it, don't store it as an episode.
+    if (ev && ev.source === 'audio' && isCommand(ev.text)) {
+      runCommand(ev.text, { llm: deps.llm }).then((r) => console.error(`  ⟳ ${r.message}`)).catch(() => {});
+      return;
+    }
+    ingest(ev);
+  };
 
   if (process.argv.includes('--stdin')) {
     createInterface({ input: process.stdin }).on('line', onLine);
@@ -364,6 +374,14 @@ switch (cmd) {
     console.log('  continuum remind add "<text>"   ·   continuum remind done <id>');
     break;
   }
+  case 'say': {        // run a voice-command transcript directly — the seam the mic supervisor calls
+    const text = process.argv.slice(3).join(' ');
+    if (!text) { console.log('usage: continuum say "<command>"   e.g. "remind me to call the auditor friday"'); break; }
+    const { llm } = buildDeps();
+    const r = await runCommand(text, { llm });
+    console.log(r.message);
+    break;
+  }
   case 'dashboard': await import('../daemon/dashboard.mjs'); break;
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
   case 'mcp-install': {
@@ -386,5 +404,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  extract       structured records: email/message/ticket/action + Office activity\n  remind        what to stay on top of (reminders + open commitments + due tickets)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
+    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  extract       structured records: email/message/ticket/action + Office activity\n  remind        what to stay on top of (reminders + open commitments + due tickets)\n  say "<cmd>"   run a voice command (remind me to… / draft an email to…)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
 }

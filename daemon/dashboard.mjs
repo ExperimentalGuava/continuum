@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
-import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes } from './store.mjs';
+import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
 import { classifyKind } from './stage4/extract.mjs';
 import { extractStated, extractInferred, activePreferences, loadStore as prefStore, approve as prefApprove, dismiss as prefDismiss, removeApproved as prefRemove } from './preferences.mjs';
@@ -396,6 +396,7 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
   <button class=mi data-go=home><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=11 cy=11 r="7"/><path d="m21 21-4.3-4.3"/></svg>Today<span class=sub>insights &amp; ask</span></button>
   <button class=mi data-go=timeline><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r="9"/><path d="M12 7v5l3 2"/></svg>Timeline<span class=sub>all moments</span></button>
   <button class=mi data-go=sessions><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><rect x=3 y=4 width=18 height=4 rx=1/><rect x=3 y=11 width=18 height=4 rx=1/><rect x=3 y=18 width=14 height=2 rx=1/></svg>Sessions<span class=sub>capture runs</span></button>
+  <button class=mi data-go=drafts><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 4h16v12H5.2L4 17.2z"/><path d="M8 9h8M8 12h5"/></svg>Drafts<span class=sub>voice emails</span></button>
   <button class=mi data-go=preferences><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 7h9M19 7h1M4 12h1M10 12h10M4 17h6M16 17h4"/><circle cx="16" cy="7" r="2"/><circle cx="7" cy="12" r="2"/><circle cx="13" cy="17" r="2"/></svg>Preferences<span class=sub>for agents</span></button>
   <button class=mi data-go=privacy><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Privacy &amp; data</button>
   <div class=div></div>
@@ -413,7 +414,7 @@ var ICON={
 };
 var SRC={ocr:'screen',screen:'screen',input:'typed',ax:'app',file:'file',clipboard:'clip',audio:'audio'};
 var root=document.documentElement,main=document.getElementById('main');
-var S={view:'control',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null,sessions:null,sessionDetail:null};
+var S={view:'control',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null,sessions:null,sessionDetail:null,drafts:null};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function clock(ms){if(!ms)return'';return new Date(ms).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 function dur(ms){var m=Math.round(ms/60000);if(m<1)return'<1m';if(m<60)return m+'m';var h=Math.floor(m/60);return h+'h '+(m%60)+'m';}
@@ -545,6 +546,22 @@ function renderSessionDetail(){
   getJSON('/api/timeline?'+prm.toString()).then(function(rows){var el=document.getElementById('rows');if(!el)return;el.innerHTML=rows.length?rows.map(function(r){return momentRow(r,'');}).join(''):'<div class=note>No moments in this session (discarded or pruned).</div>';});
 }
 
+/* ---------- DRAFTS: emails composed by voice ---------- */
+function loadDraftsView(){return getJSON('/api/drafts').then(function(d){S.drafts=d;if(S.view==='drafts')renderDrafts();});}
+function draftCard(d){
+  return '<div class=block><div class=line><span class=k>'+esc(d.subject||'(no subject)')+'</span><span class=v>'+esc(d.to||'')+'</span></div>'+
+    '<div class=full style="white-space:pre-wrap;padding-top:8px">'+esc(d.body||'')+'</div>'+
+    '<div class=btnrow><button class="btn solid" data-copy="'+esc(d.id)+'">Copy</button><button class="btn danger" data-draftdel="'+esc(d.id)+'">Delete</button></div></div>';
+}
+function renderDrafts(){
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
+    '<div class=vh>Drafts</div><div class=vsub>Emails drafted by voice — review, copy, paste into Outlook.</div>'+
+    '<div id=draftlist style="margin-top:18px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
+  if(!S.drafts){loadDraftsView();return;}
+  var el=document.getElementById('draftlist');if(!el)return;
+  el.innerHTML=S.drafts.length?S.drafts.map(draftCard).join(''):'<div class=note>No drafts yet. Say &ldquo;Continuum, draft an email to&hellip;&rdquo; while capture is running.</div>';
+}
+
 /* ---------- PRIVACY & DATA ---------- */
 function renderPrivacy(){
   var st=S.state;if(!st)return;
@@ -604,8 +621,8 @@ function renderPrefs(){
 }
 
 /* ---------- shell ---------- */
-function render(){if(S.view==='control')renderControl();else if(S.view==='home')renderHome();else if(S.view==='timeline')renderTimeline();else if(S.view==='sessions')renderSessions();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
-function go(v){S.view=v;S.editPref=null;if(v==='preferences')S.prefs=null;if(v==='sessions'){S.sessions=null;S.sessionDetail=null;}closeMenu();render();}
+function render(){if(S.view==='control')renderControl();else if(S.view==='home')renderHome();else if(S.view==='timeline')renderTimeline();else if(S.view==='sessions')renderSessions();else if(S.view==='drafts')renderDrafts();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
+function go(v){S.view=v;S.editPref=null;if(v==='preferences')S.prefs=null;if(v==='sessions'){S.sessions=null;S.sessionDetail=null;}if(v==='drafts')S.drafts=null;closeMenu();render();}
 function home(){S.view='control';S.result=null;S.query='';S.editPref=null;S.sessionDetail=null;render();}
 
 /* theme: follow system unless overridden; persisted */
@@ -636,6 +653,8 @@ main.addEventListener('click',function(e){
   var dsp=t.closest('#daemon-stop');if(dsp){send('/api/daemon/stop','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
   var sw=t.closest('#pausesw');if(sw){send('/api/pause','POST',{paused:!S.state.paused}).then(function(){loadState(true);});return;}
   var asw=t.closest('#audiosw');if(asw){var on=S.state.audio&&S.state.audio.enabled&&!S.state.audio.off;send('/api/audio','POST',{enabled:!on}).then(function(){loadState(true);});return;}
+  var cp=t.closest('[data-copy]');if(cp){var dr=(S.drafts||[]).filter(function(x){return x.id===cp.dataset.copy;})[0];if(dr&&navigator.clipboard){navigator.clipboard.writeText(dr.body||'');cp.textContent='Copied';setTimeout(function(){cp.textContent='Copy';},1200);}return;}
+  var dd=t.closest('[data-draftdel]');if(dd){send('/api/drafts','DELETE',{id:dd.dataset.draftdel}).then(function(){S.drafts=null;loadDraftsView();});return;}
   var ex=t.closest('#exadd');if(ex){var v=document.getElementById('exsel').value;if(v)send('/api/exclude','POST',{app:v}).then(function(){loadState(true);});return;}
   var ux=t.closest('[data-unexcl]');if(ux){send('/api/exclude','POST',{app:ux.dataset.unexcl,remove:true}).then(function(){loadState(true);});return;}
   var cl=t.closest('[data-clear]');if(cl){var sc=cl.dataset.clear,lbl=sc==='all'?'everything':sc==='today'?"today's memory":'the last hour';if(confirm('Delete '+lbl+'? This cannot be undone.'))send('/api/clear','POST',{scope:sc}).then(function(){loadState(true);});return;}
@@ -679,6 +698,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/daemon/stop' && req.method === 'POST') return json(res, stopDaemon());
     if (p === '/api/sessions') return json(res, listSessions());
     if (p === '/api/sessions/discard' && req.method === 'POST') return json(res, discard((await body(req)).id));
+    if (p === '/api/drafts' && req.method === 'DELETE') return json(res, { remaining: deleteDraft((await body(req)).id) });
+    if (p === '/api/drafts') return json(res, loadDrafts().slice().reverse());
     if (p === '/api/episode' && req.method === 'DELETE') return json(res, delEpisode((await body(req)).hash));
     if (p === '/api/clear' && req.method === 'POST') return json(res, clear((await body(req)).scope));
     if (p === '/api/preferences') return json(res, await prefs());
