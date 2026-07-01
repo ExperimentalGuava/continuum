@@ -71,13 +71,30 @@ function recentMcpQueries(n = 8) {
   catch { return []; }
 }
 
+// A live one-liner of what's being collected right now — top apps + recurring names from the most
+// recent moments. Heuristic (no LLM, no egress) so it's cheap enough to refresh on every poll.
+const CAP = /\b[A-Z][a-zA-Z0-9]{2,}\b/g;
+const SUM_STOP = new Set('The This That From Subject Received Preview Inbox Sent Size None Flag Status Unflagged Message HTML Page Content Reply Forward Email Voice Outlook Teams Jira Slack Connected Microsoft Exchange'.split(' '));
+function liveSummary(eps) {
+  const recent = eps.slice(-25);
+  if (!recent.length) return '';
+  const appc = new Map(), entc = new Map();
+  for (const e of recent) {
+    const a = e.app || '?'; appc.set(a, (appc.get(a) || 0) + 1);
+    for (const w of String(e.text || '').match(CAP) || []) if (!SUM_STOP.has(w)) entc.set(w, (entc.get(w) || 0) + 1);
+  }
+  const top = (m, n) => [...m.entries()].sort((x, y) => y[1] - x[1]).slice(0, n).map((x) => x[0]);
+  const apps = top(appc, 2), ents = top(entc, 3);
+  return 'Lately: ' + apps.join(', ') + (ents.length ? ' · ' + ents.join(', ') : '');
+}
+
 // A compact "what was captured" summary for the landing page (and the same shape the AI sees).
 function summaryData(eps) {
   const t0 = startOfToday();
   const today = eps.filter((e) => (e.end || e.start || 0) >= t0);
   const byKind = {};
   for (const e of today) { const k = classifyKind(e); if (k && k !== 'other') byKind[k] = (byKind[k] || 0) + 1; }
-  return { today: today.length, total: eps.length, byKind, reminders: loadReminders().filter((r) => !r.done).length, drafts: loadDrafts().length };
+  return { today: today.length, total: eps.length, byKind, live: liveSummary(eps), reminders: loadReminders().filter((r) => !r.done).length, drafts: loadDrafts().length };
 }
 
 function state() {
@@ -498,7 +515,8 @@ function summaryBlock(){
   var s=S.state&&S.state.summary; if(!s)return '';
   var kinds=Object.keys(s.byKind||{}).sort(function(a,b){return s.byKind[b]-s.byKind[a];}).map(function(k){return s.byKind[k]+' '+esc(k);}).join('  ·  ');
   return '<div class=block><div class=line><span class=k>Captured today</span><span class=v>'+(s.today||0)+' moment'+(s.today===1?'':'s')+'</span></div>'+
-    (kinds?'<p style="margin-top:10px;margin-bottom:0">'+kinds+'</p>':'')+'</div>';
+    (kinds?'<p style="margin-top:10px;margin-bottom:0">'+kinds+'</p>':'')+
+    (s.live?'<p style="margin-top:6px;margin-bottom:0;color:var(--sec)">'+esc(s.live)+'</p>':'')+'</div>';
 }
 function draftRowCompact(d){
   return '<div class=line><span class=k>✉️ '+esc(d.subject||'(no subject)')+(d.to?' &middot; <span style="color:var(--sec)">'+esc(d.to)+'</span>':'')+'</span>'+
