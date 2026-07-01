@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
-import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder, loadReminders } from './store.mjs';
+import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder, loadReminders, loadHeard, dismissReminder } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
 import { classifyKind } from './stage4/extract.mjs';
 import { remindList } from './stage4/reminders.mjs';
@@ -512,12 +512,14 @@ function loadControlLists(){
   getJSON('/api/reminders').then(function(d){S.reminders=d;var el=document.getElementById('remblock');if(!el)return;el.innerHTML=d.length?d.map(reminderRow).join(''):'<p class=muted style="padding:4px 2px 12px">Nothing pressing. Say &ldquo;remind me to&hellip;&rdquo;.</p>';});
   getJSON('/api/drafts').then(function(d){S.drafts=d;var el=document.getElementById('draftblock');if(!el)return;el.innerHTML=d.length?d.map(draftRowCompact).join(''):'<p class=muted style="padding:4px 2px 12px">No drafts yet. Say &ldquo;draft an email to&hellip;&rdquo;.</p>';});
   getJSON('/api/timeline').then(function(d){var el=document.getElementById('momblock');if(!el)return;el.innerHTML=d.length?d.slice(0,30).map(momentLine).join(''):'<p class=muted style="padding:4px 2px 12px">No moments yet. Flip Capture on and open a work app.</p>';});
+  getJSON('/api/heard').then(function(d){var el=document.getElementById('heardblock');if(!el)return;el.innerHTML=d.length?d.slice(-10).reverse().map(function(h){return '<div class=line><span class=k>'+esc(h.text)+'</span><span class=v>'+esc(clock(h.t))+'</span></div>';}).join(''):'<p class=muted style="padding:4px 2px 12px">Mic off, or nothing heard yet.</p>';});
 }
 function renderControl(){
   main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>Continuum</h1>'+
     '<div id=cswitch style="margin-top:22px">'+controlSwitches()+'</div>'+
     '<div id=csum style="margin-top:14px">'+summaryBlock()+'</div>'+
-    '<div class=seclabel style="margin-top:30px">Reminders</div><div class=block id=remblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
+    '<div class=seclabel style="margin-top:24px">Listening</div><div class=block id=heardblock><div class=muted style="padding:10px 0">&hellip;</div></div>'+
+    '<div class=seclabel style="margin-top:18px">Reminders</div><div class=block id=remblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
     '<div class=seclabel style="margin-top:18px">Drafts</div><div class=block id=draftblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
     '<div class=seclabel style="margin-top:18px">Recent moments</div><div class=rows id=momblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
   loadControlLists();
@@ -576,8 +578,8 @@ function reminderRow(it){
   var due=it.dueMs?' · due '+new Date(it.dueMs).toLocaleDateString():'';
   var over=it.status==='overdue'?' <span class=tag style="color:var(--danger)">overdue</span>':'';
   var wait=it.kind==='waiting'?' <span class=tag>awaiting</span>':'';
-  var done=(it.kind==='reminder')?'<button class=btn data-remdone="'+esc(it.id)+'">Done</button>':'';
-  return '<div class=line><span class=k>'+icon+' '+esc(it.text)+over+wait+'</span><span class=v>'+esc((it.source||'')+due)+' '+done+'</span></div>';
+  var del='<button class=btn data-remdismiss="'+esc(it.dkey||it.text)+'">Delete</button>';
+  return '<div class=line><span class=k>'+icon+' '+esc(it.text)+over+wait+'</span><span class=v>'+esc((it.source||'')+due)+' '+del+'</span></div>';
 }
 function renderReminders(){
   main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
@@ -697,7 +699,7 @@ main.addEventListener('click',function(e){
   var asw=t.closest('#audiosw');if(asw){var on=S.state.audio&&S.state.audio.enabled&&!S.state.audio.off;send('/api/audio','POST',{enabled:!on}).then(function(){loadState(true);});return;}
   var cp=t.closest('[data-copy]');if(cp){var dr=(S.drafts||[]).filter(function(x){return x.id===cp.dataset.copy;})[0];if(dr&&navigator.clipboard){navigator.clipboard.writeText(dr.body||'');cp.textContent='Copied';setTimeout(function(){cp.textContent='Copy';},1200);}return;}
   var dd=t.closest('[data-draftdel]');if(dd){send('/api/drafts','DELETE',{id:dd.dataset.draftdel}).then(function(){S.drafts=null;loadDraftsView();});return;}
-  var rmd=t.closest('[data-remdone]');if(rmd){send('/api/reminders/done','POST',{id:rmd.dataset.remdone}).then(function(){S.reminders=null;loadRemindersView();});return;}
+  var rmd=t.closest('[data-remdismiss]');if(rmd){send('/api/reminders/dismiss','POST',{key:rmd.dataset.remdismiss}).then(function(){S.reminders=null;if(S.view==='reminders')loadRemindersView();else loadControlLists();});return;}
   var csw=t.closest('#capturesw');if(csw){var con=S.state.daemon&&S.state.daemon.running;send(con?'/api/daemon/stop':'/api/daemon/start','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
   var msw=t.closest('#micsw');if(msw){var mon=S.state.audio&&S.state.audio.enabled&&!S.state.audio.off;send('/api/audio','POST',{enabled:!mon}).then(function(){loadState(true);});return;}
   var ex=t.closest('#exadd');if(ex){var v=document.getElementById('exsel').value;if(v)send('/api/exclude','POST',{app:v}).then(function(){loadState(true);});return;}
@@ -747,6 +749,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/drafts' && req.method === 'DELETE') return json(res, { remaining: deleteDraft((await body(req)).id) });
     if (p === '/api/drafts') return json(res, loadDrafts().slice().reverse());
     if (p === '/api/reminders/done' && req.method === 'POST') return json(res, { ok: completeReminder((await body(req)).id) });
+    if (p === '/api/reminders/dismiss' && req.method === 'POST') { dismissReminder((await body(req)).key); return json(res, { ok: true }); }
+    if (p === '/api/heard') return json(res, loadHeard());
     // heuristic only (no LLM on a background poll → fast, no egress, RAM-light)
     if (p === '/api/reminders') return json(res, await remindList(loadEpisodes(), {}));
     if (p === '/api/episode' && req.method === 'DELETE') return json(res, delEpisode((await body(req)).hash));

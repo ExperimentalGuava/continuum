@@ -81,6 +81,29 @@ export function completeReminder(id) {
   return true;
 }
 
+// --- live transcript ("what's being heard") — a small rolling buffer for the dashboard ---
+export const HEARD_FILE = path.join(DATA_DIR, 'heard.ndjson');
+export function loadHeard() {
+  try { return fs.readFileSync(HEARD_FILE, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); }
+  catch { return []; }
+}
+export function appendHeard(text, now = Date.now()) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const keep = [...loadHeard(), { t: now, text: String(text || '').slice(0, 300) }].slice(-40);
+    fs.writeFileSync(HEARD_FILE, keep.map((x) => JSON.stringify(x)).join('\n') + '\n');
+  } catch { /* non-fatal */ }
+}
+
+// --- dismissed reminders (delete) — keys of items the user removed, so derived ones stay gone ---
+export const DISMISSED_FILE = path.join(DATA_DIR, 'dismissed-reminders.json');
+export function loadDismissed() { try { return JSON.parse(fs.readFileSync(DISMISSED_FILE, 'utf8')); } catch { return []; } }
+export function dismissReminder(key) {
+  if (!key) return;
+  const d = loadDismissed();
+  if (!d.includes(key)) { d.push(key); try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(DISMISSED_FILE, JSON.stringify(d)); } catch { /* non-fatal */ } }
+}
+
 // --- last voice action (feedback surface) ---
 export function writeLastAction(a) {
   try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(LAST_ACTION_FILE, JSON.stringify(a)); } catch { /* non-fatal */ }

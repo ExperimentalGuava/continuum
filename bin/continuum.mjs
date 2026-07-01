@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, buildDeps, redacted, DATA_DIR, claudeConfigPath } from '../daemon/config.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
-import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction } from '../daemon/store.mjs';
+import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction, appendHeard } from '../daemon/store.mjs';
 import { candidates, approve, dismiss, activePreferences } from '../daemon/preferences.mjs';
 import { isCommand, runCommand } from '../daemon/stage4/voice.mjs';
 import { notify } from '../daemon/notify.mjs';
@@ -170,7 +170,8 @@ async function start() {
   const onLine = (line) => {
     const s = line.trim(); if (!s) return;
     let ev; try { ev = JSON.parse(s); } catch { return; }   // skip bad line
-    // A spoken command ("Continuum, remind me to…") → act on it, don't store it as an episode.
+    if (ev && ev.source === 'audio') appendHeard(ev.text);   // live transcript for the dashboard
+    // A spoken command ("remind me to…" / "draft an email to…") → act on it, don't store as an episode.
     if (ev && ev.source === 'audio' && isCommand(ev.text)) {
       runCommand(ev.text, { llm: deps.llm }).then(actionFeedback).catch(() => {});
       return;

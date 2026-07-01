@@ -6,7 +6,7 @@
 import { extractTasks } from './tasks.mjs';
 import { dueToMs, extractDue } from './tasks.mjs';
 import { extractRecords } from './extract.mjs';
-import { loadReminders, appendReminder } from '../store.mjs';
+import { loadReminders, appendReminder, loadDismissed } from '../store.mjs';
 
 let _seq = 0;
 const clean = (s, n = 160) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').trim().slice(0, n);
@@ -80,5 +80,7 @@ export async function remindList(episodes, { llm, now = Date.now(), egress } = {
     }
   }
 
-  return rank(dedupe(items));
+  const dismissed = new Set(loadDismissed());
+  const keyOf = (t) => clean(t, 80).toLowerCase();
+  return rank(dedupe(items)).map((it) => ({ ...it, dkey: keyOf(it.text) })).filter((it) => !dismissed.has(it.dkey));
 }
