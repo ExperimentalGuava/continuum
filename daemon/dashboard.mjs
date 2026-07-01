@@ -504,16 +504,22 @@ function draftRowCompact(d){
   return '<div class=line><span class=k>✉️ '+esc(d.subject||'(no subject)')+(d.to?' &middot; <span style="color:var(--sec)">'+esc(d.to)+'</span>':'')+'</span>'+
     '<span class=v><button class="btn solid" data-copy="'+esc(d.id)+'">Copy</button> <button class=btn data-draftdel="'+esc(d.id)+'">Delete</button></span></div>';
 }
+function momentLine(r){
+  return '<div class=row style="cursor:default"><div class=body><div class=mt>'+esc(r.snippet||r.text||'')+'</div>'+
+    '<div class=mm>'+(r.kind&&r.kind!=='other'?esc(r.kind)+' &middot; ':'')+esc(r.app)+' &middot; '+esc(clock(r.time))+'</div></div></div>';
+}
 function loadControlLists(){
-  getJSON('/api/reminders').then(function(d){S.reminders=d;var el=document.getElementById('remblock');if(!el)return;el.innerHTML=d.length?d.map(reminderRow).join(''):'<p class=muted style="padding:4px 2px 12px">Nothing pressing. Say &ldquo;Continuum, remind me to&hellip;&rdquo;.</p>';});
-  getJSON('/api/drafts').then(function(d){S.drafts=d;var el=document.getElementById('draftblock');if(!el)return;el.innerHTML=d.length?d.map(draftRowCompact).join(''):'<p class=muted style="padding:4px 2px 12px">No drafts yet. Say &ldquo;Continuum, draft an email to&hellip;&rdquo;.</p>';});
+  getJSON('/api/reminders').then(function(d){S.reminders=d;var el=document.getElementById('remblock');if(!el)return;el.innerHTML=d.length?d.map(reminderRow).join(''):'<p class=muted style="padding:4px 2px 12px">Nothing pressing. Say &ldquo;remind me to&hellip;&rdquo;.</p>';});
+  getJSON('/api/drafts').then(function(d){S.drafts=d;var el=document.getElementById('draftblock');if(!el)return;el.innerHTML=d.length?d.map(draftRowCompact).join(''):'<p class=muted style="padding:4px 2px 12px">No drafts yet. Say &ldquo;draft an email to&hellip;&rdquo;.</p>';});
+  getJSON('/api/timeline').then(function(d){var el=document.getElementById('momblock');if(!el)return;el.innerHTML=d.length?d.slice(0,30).map(momentLine).join(''):'<p class=muted style="padding:4px 2px 12px">No moments yet. Flip Capture on and open a work app.</p>';});
 }
 function renderControl(){
   main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>Continuum</h1>'+
     '<div id=cswitch style="margin-top:22px">'+controlSwitches()+'</div>'+
     '<div id=csum style="margin-top:14px">'+summaryBlock()+'</div>'+
     '<div class=seclabel style="margin-top:30px">Reminders</div><div class=block id=remblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
-    '<div class=seclabel style="margin-top:18px">Drafts</div><div class=block id=draftblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
+    '<div class=seclabel style="margin-top:18px">Drafts</div><div class=block id=draftblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
+    '<div class=seclabel style="margin-top:18px">Recent moments</div><div class=rows id=momblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
   loadControlLists();
 }
 function refreshControl(){ var sw=document.getElementById('cswitch'); if(sw)sw.innerHTML=controlSwitches(); var su=document.getElementById('csum'); if(su)su.innerHTML=summaryBlock(); loadControlLists(); }
