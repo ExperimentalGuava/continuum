@@ -196,21 +196,25 @@ async function start() {
     // flag is on AND no `audio-off` sentinel exists. "off" means no process, immediately — important
     // for a call-recording feature. On-device, transcribe-then-delete; the helper tags each utterance
     // speaker:'you'|'them' (mic vs process loopback), and per-speaker egress keeps the remote party local.
+    // Mic: the daemon spawns the on-device listener ITSELF when the Mic switch is on — no separate
+    // command. (Prototype uses the Python whisper listener; the fleet build will fold this into the
+    // Rust helper.) Reconciled live so the dashboard switch / kill sentinel applies without a restart.
     const AUDIO_OFF = path.join(DATA_DIR, 'audio-off');
-    let audioHelperMissing = false;
+    const LISTENER = path.join(STAGE1, 'audio-capture', 'continuum_listen.py');
+    let audioUnavailable = false;
     const audioWanted = () => loadConfig().capture.audio && !fs.existsSync(AUDIO_OFF);
     const startAudio = () => {
-      if (audioChild || audioHelperMissing) return;
-      const abin = ensureHelper('audio');
-      if (!abin) { audioHelperMissing = true; return; }   // no native helper yet (see daemon/stage1/audio-capture)
-      audioChild = spawn(abin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
+      if (audioChild || audioUnavailable) return;
+      if (!fs.existsSync(LISTENER)) { audioUnavailable = true; return; }
+      const py = process.platform === 'win32' ? 'python' : 'python3';
+      audioChild = spawn(py, [LISTENER], { stdio: ['ignore', 'pipe', 'inherit'], env });
+      audioChild.on('error', () => { audioChild = null; audioUnavailable = true; console.error('  mic: could not start listener — install Python + deps: pip install numpy sounddevice webrtcvad-wheels faster-whisper'); });
       createInterface({ input: audioChild.stdout }).on('line', onLine);
       audioChild.on('exit', () => { audioChild = null; });
-      console.error('  + call transcription ON (on-device, transcribe-then-delete)');
+      console.error('  + mic listening (on-device transcription)');
     };
-    const stopAudio = () => { if (audioChild) { try { audioChild.kill(); } catch { /* gone */ } audioChild = null; console.error('  + call transcription stopped'); } };
+    const stopAudio = () => { if (audioChild) { try { audioChild.kill(); } catch { /* gone */ } audioChild = null; console.error('  + mic stopped'); } };
     if (audioWanted()) startAudio();
-    // reconcile so the dashboard switch / kill sentinel applies live (no restart)
     setInterval(() => { if (audioWanted()) startAudio(); else stopAudio(); }, 2000);
   }
 
