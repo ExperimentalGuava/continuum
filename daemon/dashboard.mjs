@@ -492,7 +492,7 @@ function controlSwitches(){
   return '<div class=block>'+
     '<div class=line><span class=k>'+capDot+'Capture</span><div class="sw'+(capOn?' on':'')+'" id=capturesw><span class=knob></span></div></div>'+
     '<div class=line><span class=k>'+micDot+'Mic</span><div class="sw'+(micOn?' on':'')+'" id=micsw><span class=knob></span></div></div>'+
-    '<p style="margin-top:10px;margin-bottom:0">'+(capOn?('On — capturing your work apps'+(micOn?', mic listening for &ldquo;Continuum&rdquo; commands.':'.')):'Off. Flip Capture on to start.')+'</p></div>';
+    '<p style="margin-top:10px;margin-bottom:0">'+(capOn?('On — capturing your work apps'+(micOn?', mic listening for commands.':'.')):'Off. Flip Capture on to start.')+'</p></div>';
 }
 function summaryBlock(){
   var s=S.state&&S.state.summary; if(!s)return '';

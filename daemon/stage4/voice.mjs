@@ -11,7 +11,9 @@ const clean = (s, n = 280) => (s == null ? '' : String(s)).replace(/\s+/g, ' ').
 // the trigger is a wake-word or whole-transcript intent detection.
 const WAKE = /^\s*(?:hey\s+|ok\s+)?continuum[\s,:.!-]*/i;
 export const stripWake = (t) => (t || '').replace(WAKE, '');
-export const isCommand = (t) => WAKE.test(t || '');   // used to ROUTE audio utterances to the assistant
+// Route an utterance to the assistant if it parses as a command — NO wake word required. The mic
+// on/off toggle is the gate; a leading "Continuum" is still tolerated but not needed.
+export const isCommand = (t) => parseIntent(t).action !== 'none';
 
 const REMIND = /^(?:remind me to|reminder to|remind me|set (?:a )?reminder to|note to self[:,]?|don'?t forget to)\s+(.+)/i;
 const DRAFT = /^(?:draft|write|compose|reply|send)\s+(?:an?\s+)?(?:e-?mail|message|reply|note|mail)\s+(.+)/i;
