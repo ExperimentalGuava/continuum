@@ -397,6 +397,20 @@ switch (cmd) {
     break;
   }
   case 'dashboard': await import('../daemon/dashboard.mjs'); break;
+  case 'app': {
+    // Native-feeling desktop window: start the local dashboard server, then open it in a
+    // chromeless app window (own icon, no browser chrome). Same local server, not a tab.
+    const port = process.env.CONTINUUM_PORT || process.env.PORT || 3939;
+    const url = `http://localhost:${port}`;
+    await import('../daemon/dashboard.mjs');            // starts listening on `port`
+    const { openAppWindow } = await import('../daemon/app-window.mjs');
+    // Give the server a moment to bind, then open the window.
+    setTimeout(() => {
+      const native = openAppWindow(url);
+      console.error(native ? `continuum → opened app window at ${url}` : `continuum → opened ${url} in your browser`);
+    }, 600);
+    break;
+  }
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
   case 'mcp-install': {
     const cfgPath = claudeConfigPath();
@@ -418,5 +432,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  extract       structured records: email/message/ticket/action + Office activity\n  remind        what to stay on top of (reminders + open commitments + due tickets)\n  say "<cmd>"   run a voice command (remind me to… / draft an email to…)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
+    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  app           same dashboard in a native app window (no browser tab)\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  extract       structured records: email/message/ticket/action + Office activity\n  remind        what to stay on top of (reminders + open commitments + due tickets)\n  say "<cmd>"   run a voice command (remind me to… / draft an email to…)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
 }

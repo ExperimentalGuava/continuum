@@ -18,8 +18,11 @@ Then get the code:
 **Double-click `Continuum.bat`** in the project folder.
 
 - First run builds the capture engine (~1–2 min) and installs voice deps — one time.
-- It then opens **http://localhost:3939** and keeps running in that window.
-- Close the window to stop Continuum.
+- It then opens **Continuum in its own app window** (its own icon, no browser tabs or address bar).
+- Keep the small black launcher window open; close it to stop Continuum.
+
+> On a machine with Edge or Chrome (nearly all Windows PCs), Continuum runs as a standalone
+> app window. If neither is found, it opens in your default browser instead — same dashboard.
 
 That's it — everything else is in the dashboard.
 

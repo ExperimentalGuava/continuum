@@ -33,11 +33,10 @@ echo   [i] Python not found - voice/mic will be off. Install Python and re-run t
 
 :run
 echo(
-echo   Opening http://localhost:3939 ...
-start "" http://localhost:3939
+echo   Opening Continuum in its own window ...
 echo   Continuum is running. Keep this window open; close it to stop.
 echo(
-node bin\continuum.mjs dashboard
+node bin\continuum.mjs app
 goto :end
 
 :noNode
