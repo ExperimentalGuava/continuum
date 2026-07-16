@@ -17,7 +17,7 @@ Then get the code:
 
 **Double-click `Continuum.bat`** in the project folder.
 
-- First run builds the capture engine (~1–2 min), installs voice deps, and **detects the AI you already have** (Ollama / an OpenAI or Anthropic key / Claude Desktop) and configures Continuum to match — one time.
+- First run builds the capture engine (~1–2 min), installs voice deps, and **detects the AI you already have** — Ollama, a local AI app (LM Studio / Jan / LocalAI), an OpenAI or Anthropic key, or Claude Desktop — and configures Continuum to match, one time.
 - It then opens **Continuum in its own app window** (its own icon, no browser tabs or address bar).
 - Keep the small black launcher window open; close it to stop Continuum.
 

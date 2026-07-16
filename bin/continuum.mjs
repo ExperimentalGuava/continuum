@@ -147,22 +147,26 @@ async function setup({ assumeYes = false } = {}) {
   const choice = chooseConfig(det);
   const configExisted = fs.existsSync(CONFIG_PATH);
 
+  // A model string that includes the local base URL, so cloud vs local openai differ.
+  const modelStr = (p, m, b) => `${p}${m ? ' · ' + m : ''}${b ? ' @ ' + b : ''}`;
+
   // What's configured now (defaults match config.mjs: llm none, embeddings local).
   const cur = {
-    llmP: raw.llm?.provider || 'none', llmM: raw.llm?.model || '',
+    llmP: raw.llm?.provider || 'none', llmM: raw.llm?.model || '', llmB: raw.llm?.base || '',
     embP: raw.embeddings?.provider || 'local', embM: raw.embeddings?.model || '',
   };
-  const changed = cur.llmP !== choice.llm.provider || cur.llmM !== choice.llm.model ||
+  const changed = cur.llmP !== choice.llm.provider || cur.llmM !== choice.llm.model || cur.llmB !== (choice.llm.base || '') ||
     cur.embP !== choice.embeddings.provider || cur.embM !== choice.embeddings.model;
 
   console.log('  Detected:');
   console.log(`    Anthropic key   ${det.keys.anthropic ? '✓ (' + det.keys.anthropic + ')' : '—'}`);
   console.log(`    OpenAI key      ${det.keys.openai ? '✓ (' + det.keys.openai + ')' : '—'}`);
   console.log(`    Ollama          ${det.ollama.running ? '✓ ' + (det.ollama.models.join(', ') || '(no models pulled)') : '— (not running)'}`);
+  console.log(`    Local AI app    ${det.oaiCompat?.running ? '✓ ' + det.oaiCompat.label + ' (' + det.oaiCompat.base + ')' : '— (LM Studio / Jan / LocalAI not running)'}`);
   console.log(`    Claude Desktop  ${det.claudeDesktop ? (mcpAlreadyInstalled() ? '✓ connected' : '✓ installed') : '—'}`);
   if (configExisted) {
     console.log('\n  Currently configured:');
-    console.log(`    LLM             ${cur.llmP}${cur.llmM ? ' · ' + cur.llmM : ''}`);
+    console.log(`    LLM             ${modelStr(cur.llmP, cur.llmM, cur.llmB)}`);
     console.log(`    Embeddings      ${cur.embP}${cur.embM ? ' · ' + cur.embM : ''}`);
   }
 
@@ -178,7 +182,7 @@ async function setup({ assumeYes = false } = {}) {
   const arrow = (label, from, to) => configExisted && from !== to
     ? console.log(`    ${label}${to}   (was ${from || '—'})`)
     : console.log(`    ${label}${to}`);
-  arrow('LLM             ', `${cur.llmP}${cur.llmM ? ' · ' + cur.llmM : ''}`, `${choice.llm.provider}${choice.llm.model ? ' · ' + choice.llm.model : ''}`);
+  arrow('LLM             ', modelStr(cur.llmP, cur.llmM, cur.llmB), modelStr(choice.llm.provider, choice.llm.model, choice.llm.base));
   arrow('Embeddings      ', `${cur.embP}${cur.embM ? ' · ' + cur.embM : ''}`, `${choice.embeddings.provider}${choice.embeddings.model ? ' · ' + choice.embeddings.model : ''}`);
   console.log('\n  Why:');
   for (const r of choice.reasons) console.log(`    · ${r}`);
@@ -224,7 +228,7 @@ function doctor() {
   console.log(`  data dir        ${DATA_DIR} ${has(DATA_DIR) ? '✓' : '(created on first run)'}`);
   console.log(`  tier            ${cfg.tier}`);
   console.log(`  embeddings      ${cfg.embeddings.provider}${cfg.embeddings.model ? ' · ' + cfg.embeddings.model : ''}`);
-  console.log(`  llm             ${cfg.llm.provider}${cfg.llm.model ? ' · ' + cfg.llm.model : ''}`);
+  console.log(`  llm             ${cfg.llm.provider}${cfg.llm.model ? ' · ' + cfg.llm.model : ''}${cfg.llm.base ? ' @ ' + cfg.llm.base : ''}`);
   console.log(`  graph           ${cfg.graph.enabled ? 'enabled · ' + cfg.graph.url : 'off (free tier)'}`);
   console.log(`  openai key      ${cfg.keys.openai ? '✓' : '—'}     anthropic key  ${cfg.keys.anthropic ? '✓' : '—'}`);
   if (cfg.embeddings.provider === 'local') console.log('\n  note: hashed local embedder (instant, zero-dep). For quality local: `ollama pull nomic-embed-text` + set embeddings.provider=ollama. For best: add an OpenAI key.');

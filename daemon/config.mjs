@@ -38,7 +38,7 @@ const DEFAULTS = {
   capture:    { source: 'screen', exclude: [], audio: false, allow: allowPatterns(), egress: 'authored' },  // screen (OCR) | ax; allow = only these work apps (by name OR window title; [] = capture all); exclude = never captured; audio = meetings (opt-in); egress = what may leave the device on the LLM pass: 'authored' (only your own content) | 'all'
   files:      { watch: [] },                          // dirs to capture writes from, e.g. ["~/Documents", "~/code"]
   embeddings: { provider: 'local', model: '' },     // local | ollama | openai | api
-  llm:        { provider: 'none',  model: '' },      // none | ollama | openai | anthropic
+  llm:        { provider: 'none',  model: '', base: '' }, // none | ollama | openai | anthropic. base: custom OpenAI-compatible URL (LM Studio/Jan/LocalAI/vLLM); empty = provider default
   graph:      { enabled: false, url: 'http://localhost:8000', group: 'default' },
   keys:       { openai: '', anthropic: '' },
   mcp:        { paused: false, sinceDays: 0 },        // agent access controls: pause, or limit to a recent window (0 = all)
@@ -80,7 +80,9 @@ export function buildDeps(cfg = loadConfig()) {
   }
 
   let llm = null;
-  if (cfg.llm.provider === 'openai') llm = llmClient({ provider: 'openai', apiKey: cfg.keys.openai, model: cfg.llm.model || 'gpt-4o-mini' });
+  // 'openai' covers both cloud OpenAI (with a key) and any OpenAI-compatible local
+  // server (LM Studio, Jan, LocalAI, vLLM) when llm.base points at it — those need no key.
+  if (cfg.llm.provider === 'openai') llm = llmClient({ provider: 'openai', apiKey: cfg.keys.openai || 'local', model: cfg.llm.model || 'gpt-4o-mini', base: cfg.llm.base || undefined });
   else if (cfg.llm.provider === 'anthropic') llm = llmClient({ provider: 'anthropic', apiKey: cfg.keys.anthropic, model: cfg.llm.model || 'claude-sonnet-4-6' });
   else if (cfg.llm.provider === 'ollama') llm = ollamaLLM({ model: cfg.llm.model || 'llama3.1' });
 

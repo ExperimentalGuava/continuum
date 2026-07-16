@@ -1,6 +1,6 @@
 // detect — the "configure to whatever AI is installed" decision logic.
 // Pure + injected probes: no network, no real machine state.
-import { chooseConfig, applyChoice, detectEnvironment, probeOllama, classifyKey } from './detect.mjs';
+import { chooseConfig, applyChoice, detectEnvironment, probeOllama, probeOpenAICompatible, classifyKey } from './detect.mjs';
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n}  ${x}`); } };
@@ -8,6 +8,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } els
 console.log('\nDetect (configure to whatever AI is installed)\n');
 
 const noOllama = { running: false, models: [], chatModels: [], embedModels: [] };
+const noOai = { running: false, label: '', base: '', chatModels: [] };
 
 // --- chooseConfig: LLM priority -------------------------------------------------
 {
@@ -79,7 +80,7 @@ const noOllama = { running: false, models: [], chatModels: [], embedModels: [] }
     fileKeys: { openai: 'sk-file' },
     claudeConfigPath: () => '/does/exist',
     existsSync: (p) => p === '/does/exist',
-    probe: async () => noOllama,
+    probe: async () => noOllama, oaiProbe: async () => noOai,
   });
   ok('anthropic key sourced from env', det.keys.anthropic === 'env', det.keys.anthropic);
   ok('openai key sourced from config file', det.keys.openai === 'config', det.keys.openai);
@@ -89,10 +90,50 @@ const noOllama = { running: false, models: [], chatModels: [], embedModels: [] }
   const det = await detectEnvironment({
     env: {}, fileKeys: {},
     claudeConfigPath: () => '/nope', existsSync: () => false,
-    probe: async () => noOllama,
+    probe: async () => noOllama, oaiProbe: async () => noOai,
   });
   ok('no Claude Desktop when config path missing', det.claudeDesktop === false);
   ok('no keys when neither env nor file', det.keys.openai === '' && det.keys.anthropic === '');
+}
+
+// --- local OpenAI-compatible app (LM Studio / Jan / …) --------------------------
+{
+  const oai = { running: true, label: 'LM Studio', base: 'http://localhost:1234/v1', chatModels: ['qwen2.5-7b-instruct'] };
+  const c = chooseConfig({ keys: { anthropic: '', openai: '' }, ollama: noOllama, oaiCompat: oai });
+  ok('local app → LLM openai with base URL', c.llm.provider === 'openai' && c.llm.base === 'http://localhost:1234/v1', JSON.stringify(c.llm));
+  ok('local app → uses its loaded model', c.llm.model === 'qwen2.5-7b-instruct', c.llm.model);
+  ok('local app → embeddings stay local (no key)', c.embeddings.provider === 'local', c.embeddings.provider);
+}
+{
+  // priority: a real key still beats a local app
+  const oai = { running: true, label: 'Jan', base: 'http://localhost:1337/v1', chatModels: ['llama'] };
+  const c = chooseConfig({ keys: { anthropic: 'env', openai: '' }, ollama: noOllama, oaiCompat: oai });
+  ok('Anthropic key beats a local app', c.llm.provider === 'anthropic' && !c.llm.base, JSON.stringify(c.llm));
+}
+{
+  // priority: Ollama beats the generic OpenAI-compatible app
+  const ollama = { running: true, models: ['llama3.1'], chatModels: ['llama3.1'], embedModels: [] };
+  const oai = { running: true, label: 'LM Studio', base: 'http://localhost:1234/v1', chatModels: ['x'] };
+  const c = chooseConfig({ keys: { anthropic: '', openai: '' }, ollama, oaiCompat: oai });
+  ok('Ollama beats generic local app', c.llm.provider === 'ollama', c.llm.provider);
+}
+{
+  const raw = {};
+  const c = chooseConfig({ keys: { anthropic: '', openai: '' }, ollama: noOllama, oaiCompat: { running: true, label: 'LocalAI', base: 'http://localhost:8080/v1', chatModels: ['m'] } });
+  const next = applyChoice(raw, c);
+  ok('applyChoice persists the base URL', next.llm.base === 'http://localhost:8080/v1', JSON.stringify(next.llm));
+}
+
+// --- probeOpenAICompatible: finds the first app that answers /models -------------
+{
+  const fetchImpl = async (url) => url.startsWith('http://localhost:1234')
+    ? ({ ok: true, json: async () => ({ data: [{ id: 'qwen2.5' }] }) })
+    : ({ ok: false });
+  const hit = await probeOpenAICompatible({ apps: [{ label: 'Jan', base: 'http://localhost:1337/v1' }, { label: 'LM Studio', base: 'http://localhost:1234/v1' }], fetchImpl });
+  ok('probe finds the responding app', hit.running && hit.label === 'LM Studio' && hit.chatModels.includes('qwen2.5'), JSON.stringify(hit));
+
+  const none = await probeOpenAICompatible({ apps: [{ label: 'X', base: 'http://localhost:9/v1' }], fetchImpl: async () => { throw new Error('down'); } });
+  ok('probe with nothing running → running:false', none.running === false);
 }
 
 // --- classifyKey: recognize a pasted key by prefix -----------------------------

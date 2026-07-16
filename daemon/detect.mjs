@@ -31,6 +31,34 @@ export async function probeOllama({ base = 'http://localhost:11434', fetchImpl =
   }
 }
 
+// Well-known local OpenAI-compatible desktop apps, by their default endpoint.
+// vLLM's default (8000) is intentionally omitted: it collides with Continuum's graph
+// sidecar, and a /v1/models probe there would be ambiguous.
+export const OAI_COMPAT_APPS = [
+  { label: 'LM Studio', base: 'http://localhost:1234/v1' },
+  { label: 'Jan',       base: 'http://localhost:1337/v1' },
+  { label: 'LocalAI',   base: 'http://localhost:8080/v1' },
+  { label: 'text-generation-webui', base: 'http://localhost:5000/v1' },
+];
+
+// Probe the known local OpenAI-compatible apps. Returns the first that answers
+// GET {base}/models with a model list, else { running:false }.
+export async function probeOpenAICompatible({ apps = OAI_COMPAT_APPS, fetchImpl = fetch, timeoutMs = 500 } = {}) {
+  for (const app of apps) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetchImpl(app.base + '/models', { signal: ctrl.signal });
+      if (r.ok) {
+        const j = await r.json();
+        const chatModels = (j.data || []).map((m) => m.id).filter(Boolean);
+        if (chatModels.length || j.data) return { running: true, label: app.label, base: app.base, chatModels };
+      }
+    } catch { /* not this one */ } finally { clearTimeout(timer); }
+  }
+  return { running: false, label: '', base: '', chatModels: [] };
+}
+
 // Gather the full picture. `deps` is injectable so tests never touch the real machine.
 export async function detectEnvironment(deps = {}) {
   const {
@@ -39,6 +67,7 @@ export async function detectEnvironment(deps = {}) {
     claudeConfigPath,                    // () => path
     existsSync = fs.existsSync,
     probe = probeOllama,
+    oaiProbe = probeOpenAICompatible,
   } = deps;
 
   const keys = {
@@ -48,11 +77,12 @@ export async function detectEnvironment(deps = {}) {
   };
 
   const ollama = await probe(deps.ollama || {});
+  const oaiCompat = await oaiProbe(deps.oaiCompat || {});
 
   let claudeDesktop = false;
   try { claudeDesktop = !!(claudeConfigPath && existsSync(resolvePath(claudeConfigPath))); } catch { claudeDesktop = false; }
 
-  return { keys, ollama, claudeDesktop };
+  return { keys, ollama, oaiCompat, claudeDesktop };
 }
 
 // claudeConfigPath may be a function or a string — normalize to a string.
@@ -79,11 +109,13 @@ function pickEmbedModel(embedModels) {
 // Returns { llm, embeddings, reasons } — reasons is a human-readable trail.
 export function chooseConfig(det) {
   const reasons = [];
-  const llm = { provider: 'none', model: '' };
+  const llm = { provider: 'none', model: '', base: '' };
   const embeddings = { provider: 'local', model: '' };
+  const oai = det.oaiCompat || { running: false, chatModels: [] };
 
   // LLM: a real key beats local; Anthropic first (the product's native pairing),
-  // then OpenAI, then a local Ollama chat model, else stay local (none).
+  // then OpenAI, then Ollama, then a local OpenAI-compatible app (LM Studio/Jan/…),
+  // else stay local (none).
   if (det.keys.anthropic) {
     llm.provider = 'anthropic'; llm.model = 'claude-sonnet-4-6';
     reasons.push(`Anthropic key found (${det.keys.anthropic}) → LLM: Claude`);
@@ -93,6 +125,10 @@ export function chooseConfig(det) {
   } else if (det.ollama.running && det.ollama.chatModels.length) {
     llm.provider = 'ollama'; llm.model = pickChatModel(det.ollama.chatModels);
     reasons.push(`Ollama is running → LLM: ${llm.model} (local, free)`);
+  } else if (oai.running) {
+    // OpenAI-compatible local server: reuse the 'openai' path with a base URL, no key.
+    llm.provider = 'openai'; llm.base = oai.base; llm.model = oai.chatModels[0] || 'local-model';
+    reasons.push(`${oai.label} detected at ${oai.base} → LLM: ${llm.model} (local, no key)`);
   } else {
     reasons.push('No API key or local model found → staying fully local (no LLM). Capture + search still work.');
   }
@@ -127,7 +163,7 @@ export function classifyKey(input) {
 // settings or persisting any secret (keys stay in env / are set by the user).
 export function applyChoice(rawConfig, choice) {
   const next = { ...rawConfig };
-  next.llm = { ...(rawConfig.llm || {}), provider: choice.llm.provider, model: choice.llm.model };
+  next.llm = { ...(rawConfig.llm || {}), provider: choice.llm.provider, model: choice.llm.model, base: choice.llm.base || '' };
   next.embeddings = { ...(rawConfig.embeddings || {}), provider: choice.embeddings.provider, model: choice.embeddings.model };
   return next;
 }
