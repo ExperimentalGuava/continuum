@@ -577,7 +577,7 @@ function renderSessions(){
     '<div class=rows id=srows style="margin-top:14px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.sessions){loadSessions();return;}
   var el=document.getElementById('srows');if(!el)return;
-  el.innerHTML=S.sessions.length?S.sessions.map(sessionRow).join(''):'<div class=note>No capture runs yet. Start capture in <b>Privacy &amp; data</b>.</div>';
+  el.innerHTML=S.sessions.length?S.sessions.map(sessionRow).join(''):'<div class=note>No capture runs yet. Turn on <b>Text Capture</b> from the home screen.</div>';
 }
 function renderSessionDetail(){
   var id=S.sessionDetail,s=(S.sessions||[]).filter(function(x){return x.id===id;})[0];
@@ -629,13 +629,8 @@ function renderPrivacy(){
   var st=S.state;if(!st)return;
   var excl=st.exclude.length?'<div class=tags>'+st.exclude.map(function(a){return '<span class=taga>'+esc(a)+'<span class=x data-unexcl="'+esc(a)+'">'+ICON.x+'</span></span>';}).join('')+'</div>':'<p>No apps excluded. Everything visible is captured.</p>';
   var opts=st.apps.filter(function(a){return st.exclude.indexOf(a)<0;}).map(function(a){return '<option value="'+esc(a)+'">'+esc(a)+'</option>';}).join('');
-  var dm=st.daemon||{running:false};
-  var dstat=dm.running?('<span class="dot on"></span>Running'+(dm.start?' since '+clock(dm.start):'')):(dm.stopping?'<span class="dot warn"></span>Stopping…':'<span class=dot></span>Stopped');
-  var dbtn=dm.running?'<button class="btn danger" id=daemon-stop>Stop capture</button>':'<button class="btn solid" id=daemon-start'+(dm.stopping?' disabled':'')+'>Start capture</button>';
   main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
-    '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device.</div>'+
-    '<div class=block><h3>Capture</h3><p>Activate to begin a capture session; stop to end it. Each run is grouped under <b>Sessions</b>.</p>'+
-      '<div class=line><span class=k>'+dstat+'</span>'+dbtn+'</div></div>'+
+    '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device. Turn capture on or off from the home screen.</div>'+
     '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
       '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Live. Capturing while Continuum is active. Pause holds capture without ending the session.')+'</p></div>'+
     '<div class=block><div class=line><span class=k>Call transcription'+((st.audio&&st.audio.recording)?' <span class=dot style="background:var(--danger)"></span>':'')+'</span><div class="sw'+((st.audio&&st.audio.enabled&&!st.audio.off)?' on':'')+'" id=audiosw><span class=knob></span></div></div>'+
@@ -711,8 +706,6 @@ main.addEventListener('click',function(e){
   if(t.closest('#back')){home();return;}
   var dsc=t.closest('[data-discard]');if(dsc){e.stopPropagation();if(confirm('Discard this session’s data? This deletes its captured moments and cannot be undone.'))send('/api/sessions/discard','POST',{id:dsc.dataset.discard}).then(function(){S.sessions=null;S.sessionDetail=null;loadSessions();});return;}
   var srow=t.closest('[data-session]');if(srow){S.sessionDetail=srow.dataset.session;renderSessionDetail();return;}
-  var dst=t.closest('#daemon-start');if(dst){send('/api/daemon/start','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
-  var dsp=t.closest('#daemon-stop');if(dsp){send('/api/daemon/stop','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
   var sw=t.closest('#pausesw');if(sw){send('/api/pause','POST',{paused:!S.state.paused}).then(function(){loadState(true);});return;}
   var asw=t.closest('#audiosw');if(asw){var on=S.state.audio&&S.state.audio.enabled&&!S.state.audio.off;send('/api/audio','POST',{enabled:!on}).then(function(){loadState(true);});return;}
   var cp=t.closest('[data-copy]');if(cp){var dr=(S.drafts||[]).filter(function(x){return x.id===cp.dataset.copy;})[0];if(dr&&navigator.clipboard){navigator.clipboard.writeText(dr.body||'');cp.textContent='Copied';setTimeout(function(){cp.textContent='Copy';},1200);}return;}

@@ -342,16 +342,25 @@ async function start() {
     // Rust helper.) Reconciled live so the dashboard switch / kill sentinel applies without a restart.
     const AUDIO_OFF = path.join(DATA_DIR, 'audio-off');
     const LISTENER = path.join(STAGE1, 'audio-capture', 'continuum_listen.py');
-    let audioUnavailable = false;
+    let audioUnavailable = false, audioFails = 0;
     const audioWanted = () => loadConfig().capture.audio && !fs.existsSync(AUDIO_OFF);
     const startAudio = () => {
       if (audioChild || audioUnavailable) return;
       if (!fs.existsSync(LISTENER)) { audioUnavailable = true; return; }
       const py = process.platform === 'win32' ? 'python' : 'python3';
+      const startedAt = Date.now();
       audioChild = spawn(py, [LISTENER], { stdio: ['ignore', 'pipe', 'inherit'], env, windowsHide: true });
       audioChild.on('error', () => { audioChild = null; audioUnavailable = true; console.error('  mic: could not start listener — install Python + deps: pip install numpy sounddevice webrtcvad-wheels faster-whisper'); });
-      createInterface({ input: audioChild.stdout }).on('line', onLine);
-      audioChild.on('exit', () => { audioChild = null; });
+      if (audioChild.stdout) createInterface({ input: audioChild.stdout }).on('line', onLine);
+      audioChild.on('exit', (code) => {
+        audioChild = null;
+        // A listener that dies within seconds is misconfigured (commonly the Whisper model
+        // failed to download → cannot open model.bin). Do NOT relaunch it every 2s in a crash
+        // loop; give up after two fast failures and disable Voice Capture until it's fixed.
+        if (code && Date.now() - startedAt < 8000) {
+          if (++audioFails >= 2) { audioUnavailable = true; console.error('  mic: voice listener keeps exiting — the Whisper model may be missing or partially downloaded. Voice Capture is off until fixed (delete %USERPROFILE%\\.cache\\huggingface and toggle it on again). See daemon.log.'); }
+        } else { audioFails = 0; }
+      });
       console.error('  + mic listening (on-device transcription)');
     };
     const stopAudio = () => { if (audioChild) { try { audioChild.kill(); } catch { /* gone */ } audioChild = null; console.error('  + mic stopped'); } };
