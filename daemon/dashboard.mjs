@@ -546,7 +546,7 @@ function refreshControl(){ var sw=document.getElementById('cswitch'); if(sw)sw.i
 
 /* ---------- TIMELINE ---------- */
 function renderTimeline(){
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
     '<div class=vh>Timeline</div><div class=vsub>'+(S.state?S.state.stats.total:'')+' moments, newest first.</div>'+
     '<div class=search>'+ICON.search+'<input id=q placeholder="Search your memory&hellip;" value="'+esc(S.facet.q)+'"></div>'+
     '<div class=rows id=rows style="margin-top:12px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
@@ -572,8 +572,8 @@ function sessionRow(s){
 }
 function renderSessions(){
   if(S.sessionDetail){renderSessionDetail();return;}
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
-    '<div class=vh>Sessions</div><div class=vsub>Each capture run. What the daemon collected while active.</div>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
+    '<div class=vh>Sessions</div><div class=vsub>Each capture run. What Continuum collected while active.</div>'+
     '<div class=rows id=srows style="margin-top:14px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.sessions){loadSessions();return;}
   var el=document.getElementById('srows');if(!el)return;
@@ -600,7 +600,7 @@ function reminderRow(it){
   return '<div class=line><span class=k>'+icon+' '+esc(it.text)+over+wait+'</span><span class=v>'+esc((it.source||'')+due)+' '+del+'</span></div>';
 }
 function renderReminders(){
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
     '<div class=vh>Reminders</div><div class=vsub>What to stay on top of: your reminders, open commitments, and due tickets.</div>'+
     '<div class=block id=remlist><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.reminders){loadRemindersView();return;}
@@ -616,7 +616,7 @@ function draftCard(d){
     '<div class=btnrow><button class="btn solid" data-copy="'+esc(d.id)+'">Copy</button><button class="btn danger" data-draftdel="'+esc(d.id)+'">Delete</button></div></div>';
 }
 function renderDrafts(){
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
     '<div class=vh>Drafts</div><div class=vsub>Emails drafted by voice. Review, copy, paste into Outlook.</div>'+
     '<div id=draftlist style="margin-top:18px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.drafts){loadDraftsView();return;}
@@ -632,12 +632,12 @@ function renderPrivacy(){
   var dm=st.daemon||{running:false};
   var dstat=dm.running?('<span class="dot on"></span>Running'+(dm.start?' since '+clock(dm.start):'')):(dm.stopping?'<span class="dot warn"></span>Stopping…':'<span class=dot></span>Stopped');
   var dbtn=dm.running?'<button class="btn danger" id=daemon-stop>Stop capture</button>':'<button class="btn solid" id=daemon-start'+(dm.stopping?' disabled':'')+'>Start capture</button>';
-  main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
+  main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
     '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device.</div>'+
-    '<div class=block><h3>Capture daemon</h3><p>Activate to begin a capture session; stop to end it. Each run is grouped under <b>Sessions</b>.</p>'+
+    '<div class=block><h3>Capture</h3><p>Activate to begin a capture session; stop to end it. Each run is grouped under <b>Sessions</b>.</p>'+
       '<div class=line><span class=k>'+dstat+'</span>'+dbtn+'</div></div>'+
     '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
-      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Live. Capturing while the daemon runs. Pause holds capture without ending the session.')+'</p></div>'+
+      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Live. Capturing while Continuum is active. Pause holds capture without ending the session.')+'</p></div>'+
     '<div class=block><div class=line><span class=k>Call transcription'+((st.audio&&st.audio.recording)?' <span class=dot style="background:var(--danger)"></span>':'')+'</span><div class="sw'+((st.audio&&st.audio.enabled&&!st.audio.off)?' on':'')+'" id=audiosw><span class=knob></span></div></div>'+
       '<p style="margin-top:12px;margin-bottom:0">'+((st.audio&&st.audio.recording)?'Recording. Transcribing the call on device.':(st.audio&&st.audio.enabled&&!st.audio.off)?'On (idle). Will transcribe Teams calls on device when one is active.':'Off. Transcribes Teams calls on device (transcribe then delete); your track and the other party are separate, and the remote side never leaves this device. Toggling off is an instant kill switch.')+'</p></div>'+
     '<div class=block><h3>Excluded apps</h3><p>Apps Continuum should never capture. Applies next time you start capture.</p>'+excl+
@@ -671,7 +671,7 @@ function prefSuggest(p){
     '<div class=pbtns><button class="btn solid" data-pref-approve="'+esc(p.id)+'">Approve</button><button class=btn data-pref-edit="'+esc(p.id)+'">Edit</button><button class=btn data-pref-dismiss="'+esc(p.id)+'">Dismiss</button></div></div>';
 }
 function renderPrefs(){
-  var head='<button class=back id=back>'+ICON.back+'Capture</button>'+
+  var head='<button class=back id=back>'+ICON.back+'Home</button>'+
     '<div class=vh>Preferences</div><div class=vsub>How your agents work for you. Learned from your activity &mdash; things you&rsquo;ve clearly stated apply automatically; everything else waits for your okay. Applied silently, never in the chat.</div>';
   var d=S.prefs;
   if(!d){main.innerHTML=head+'<div class=muted style="padding:22px 0">Loading&hellip;</div>';loadPrefs();return;}
