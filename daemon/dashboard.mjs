@@ -486,6 +486,9 @@ function renderInsights(){
 }
 function runAsk(q){
   if(!q.trim())return;S.query=q;
+  // The ask box also lives on the landing (control) view; move to the results view so
+  // the answer + sources have somewhere to render.
+  if(S.view!=='home'){S.view='home';S.result=null;render();}
   var a=document.getElementById('ask');if(a)a.value=q;
   var b=document.getElementById('body');if(b)b.innerHTML='<div class=seclabel>Answer</div><div class=muted>Searching your memory&hellip;</div>';
   send('/api/ask','POST',{query:q}).then(function(r){S.result=r;if(S.view==='home')renderHome();});
@@ -494,7 +497,7 @@ function renderResult(){
   var r=S.result,b=document.getElementById('body');if(!b)return;
   var html='';
   if(r.answer){html+='<div class=seclabel>Answer</div><div class=answer>'+esc(r.answer).replace(/\\[(\\d+)\\]/g,function(m,n){return '<sup class=cite data-cite="'+n+'">'+n+'</sup>';})+'</div>';}
-  else if(r.hasLLM===false){html+='<div class=seclabel>Answer</div><div class=note>No model connected, so here are the moments that match. Add a model in <b>Privacy &amp; data</b> to get a written answer with citations.</div>';}
+  else if(r.hasLLM===false){html+='<div class=seclabel>Answer</div><div class=note>No model connected, so here are the moments that match. Run <code>continuum setup</code> to connect a local model or API key for a written answer with citations.</div>';}
   html+='<div class=seclabel style="margin-top:32px">'+(r.answer?'Sources':'Matching moments')+'</div>';
   html+='<div class=rows>'+(r.sources.length?r.sources.map(function(s){return momentRow(s,'');}).join(''):'<div class=muted>No matching moments found.</div>')+'</div>';
   html+='<button class=back data-home=1>'+ICON.back+'Back to today</button>';
@@ -536,6 +539,7 @@ function loadControlLists(){
 }
 function renderControl(){
   main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>'+greet()+'</h1>'+
+    '<label class=ask><span>'+ICON.search+'</span><input id=ask placeholder="Ask your memory anything" value="'+esc(S.query)+'"><span class=hintk>/</span></label>'+
     '<div id=cswitch style="margin-top:22px">'+controlSwitches()+'</div>'+
     '<div id=csum style="margin-top:14px">'+summaryBlock()+'</div>'+
     '<div class="seclabel'+(S.sec.voice?' open':'')+'" data-sec=voice style="margin-top:24px">Voice Capture'+ICON.chev+'</div>'+
@@ -732,7 +736,7 @@ main.addEventListener('input',function(e){if(e.target.id==='q'){clearTimeout(S._
 main.addEventListener('keydown',function(e){if(e.target.id==='ask'&&e.key==='Enter')runAsk(e.target.value);else if(e.target.id==='pedit'&&e.key==='Enter'){var sb=document.querySelector('[data-pref-save]');if(sb)sb.click();}else if(e.target.id==='pedit'&&e.key==='Escape'){e.stopPropagation();S.editPref=null;renderPrefs();}});
 document.addEventListener('keydown',function(e){
   var typing=/^(input|textarea|select)$/i.test((e.target.tagName||''));
-  if(e.key==='/'&&!typing){e.preventDefault();if(S.view!=='home')home();var a=document.getElementById('ask');if(a)a.focus();}
+  if(e.key==='/'&&!typing){e.preventDefault();var a=document.getElementById('ask');if(!a){S.view='home';render();a=document.getElementById('ask');}if(a)a.focus();}
   if(e.key==='Escape'){if(sheet.classList.contains('on'))closeMenu();else if(S.result||S.view!=='home')home();}
 });
 
