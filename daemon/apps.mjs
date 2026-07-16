@@ -5,7 +5,7 @@
 // app name OR window title, because much of this runs in a BROWSER (Outlook web, Jira Cloud,
 // Salesforce, ServiceNow) where the process is "chrome"/"msedge" and the real app is in the title.
 export const APP_CLASSES = [
-  { key: 'outlook',    label: 'Outlook / Microsoft 365 mail + calendar', patterns: ['outlook', 'office365', 'microsoft 365'] },
+  { key: 'outlook',    label: 'Outlook / Microsoft 365 mail + calendar', patterns: ['outlook', 'olk', 'office365', 'microsoft 365'] },
   { key: 'teams',      label: 'Microsoft Teams',                          patterns: ['teams'] },
   { key: 'atlassian',  label: 'Jira / Confluence (Atlassian)',           patterns: ['jira', 'confluence', 'atlassian'] },
   { key: 'slack',      label: 'Slack',                                    patterns: ['slack'] },

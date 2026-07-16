@@ -272,7 +272,7 @@ async function start() {
   // self-referential feedback loop (and OCR mangles any skip-markers we'd match on — brittle). The
   // durable fix is to not print the noise. Set CONTINUUM_VERBOSE=1 to watch episodes scroll.
   const verbose = process.env.CONTINUUM_VERBOSE === '1';
-  console.error(`continuum: capturing (${source}, ${cfg.embeddings.provider}) → ${DATA_DIR} · silent (CONTINUUM_VERBOSE=1 to see episodes)\n`);
+  console.error(`continuum: capturing (${source}, ${cfg.embeddings.provider}) → ${DATA_DIR} · ${verbose ? 'verbose — episodes print as they close (leave a window or wait ~90s)' : 'silent (CONTINUUM_VERBOSE=1 to see episodes)'}\n`);
 
   // Activation session: one record per run, so the dashboard can group "what this run collected".
   // daemon.json advertises liveness (pid/session) to the dashboard; the `stop` sentinel is the
