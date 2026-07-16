@@ -27,6 +27,7 @@ Prefer by hand? (needs **Node 18+**)
 ```bash
 npm i -g continuum-core
 continuum verify       # prove it works in 30s — no keys, no setup
+continuum setup        # detect your installed AI (Ollama/OpenAI/Anthropic) + configure to match
 continuum start        # live capture (grant Screen Recording once)
 continuum dashboard    # your timeline + search at localhost:3939
 continuum mcp-install  # connect it to Claude Desktop, then restart Claude

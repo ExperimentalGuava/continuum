@@ -16,7 +16,8 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadConfig, buildDeps, redacted, DATA_DIR, claudeConfigPath } from '../daemon/config.mjs';
+import { loadConfig, buildDeps, redacted, DATA_DIR, claudeConfigPath, readRawConfig, writeRawConfig } from '../daemon/config.mjs';
+import { detectEnvironment, chooseConfig, applyChoice } from '../daemon/detect.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
 import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction, appendHeard } from '../daemon/store.mjs';
 import { candidates, approve, dismiss, activePreferences } from '../daemon/preferences.mjs';
@@ -76,6 +77,62 @@ function ensureHelper(name) {
   console.error(`building the ${name} capture helper (first run, ~10s)…`);
   try { execFileSync('swiftc', [src, '-o', userBin], { stdio: 'inherit' }); return userBin; }
   catch { console.error('build failed — ensure Xcode Command Line Tools are installed (xcode-select --install).'); return null; }
+}
+
+// Add Continuum's MCP server to Claude Desktop's config (idempotent). Returns the path
+// written, or null if Claude Desktop isn't present and `onlyIfPresent` is set.
+function installMcp({ onlyIfPresent = false } = {}) {
+  const cfgPath = claudeConfigPath();
+  if (onlyIfPresent && !fs.existsSync(cfgPath) && !fs.existsSync(path.dirname(cfgPath))) return null;
+  const dir = path.dirname(cfgPath);
+  const server = path.join(HERE, '..', 'daemon', 'mcp-server.mjs');
+  let conf = {};
+  try { conf = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); fs.copyFileSync(cfgPath, cfgPath + '.bak'); } catch { /* no config yet */ }
+  conf.mcpServers = conf.mcpServers || {};
+  conf.mcpServers.continuum = { command: process.execPath, args: [server] };
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(cfgPath, JSON.stringify(conf, null, 2) + '\n');
+  return cfgPath;
+}
+
+// One-question yes/no prompt. Auto-yes when not attached to a terminal (e.g. piped
+// first-run) or when `assumeYes` is set, so setup never blocks an unattended launch.
+function confirm(question, assumeYes) {
+  if (assumeYes || !process.stdin.isTTY) return Promise.resolve(true);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((res) => rl.question(`${question} [Y/n] `, (a) => { rl.close(); res(!/^n/i.test(a.trim())); }));
+}
+
+// `continuum setup` — detect the user's installed AI and adjust the config to match.
+async function setup({ assumeYes = false } = {}) {
+  console.log('\ncontinuum setup — detecting your AI\n');
+  const raw = readRawConfig();
+  const det = await detectEnvironment({ fileKeys: raw.keys || {}, claudeConfigPath });
+  const choice = chooseConfig(det);
+
+  console.log('  Detected:');
+  console.log(`    Anthropic key   ${det.keys.anthropic ? '✓ (' + det.keys.anthropic + ')' : '—'}`);
+  console.log(`    OpenAI key      ${det.keys.openai ? '✓ (' + det.keys.openai + ')' : '—'}`);
+  console.log(`    Ollama          ${det.ollama.running ? '✓ ' + (det.ollama.models.join(', ') || '(no models pulled)') : '— (not running)'}`);
+  console.log(`    Claude Desktop  ${det.claudeDesktop ? '✓ installed' : '—'}`);
+  console.log('\n  Will configure:');
+  console.log(`    LLM             ${choice.llm.provider}${choice.llm.model ? ' · ' + choice.llm.model : ''}`);
+  console.log(`    Embeddings      ${choice.embeddings.provider}${choice.embeddings.model ? ' · ' + choice.embeddings.model : ''}`);
+  console.log('\n  Why:');
+  for (const r of choice.reasons) console.log(`    · ${r}`);
+  console.log('');
+
+  if (!(await confirm('Apply this configuration?', assumeYes))) { console.log('  Skipped — nothing changed.'); return; }
+  writeRawConfig(applyChoice(raw, choice));
+  console.log(`  ✓ Wrote ${DATA_DIR}/config.json`);
+
+  // If Claude Desktop is present, connect Continuum to it so it can use your context.
+  if (det.claudeDesktop && await confirm('Connect Continuum to Claude Desktop now?', assumeYes)) {
+    const p = installMcp();
+    const quit = process.platform === 'win32' ? 'quit Claude Desktop from the tray, then reopen it' : 'quit Claude Desktop (Cmd+Q), then reopen it';
+    if (p) console.log(`  ✓ Added Continuum to Claude Desktop (${p}). Last step: ${quit}.`);
+  }
+  console.log('\n  Done. Run `continuum doctor` to see the resolved setup.\n');
 }
 
 function doctor() {
@@ -412,16 +469,9 @@ switch (cmd) {
     break;
   }
   case 'mcp': await import('../daemon/mcp-server.mjs'); break;       // stdio JSON-RPC — do not print to stdout
+  case 'setup': await setup({ assumeYes: process.argv.includes('--yes') || process.argv.includes('-y') }); break;
   case 'mcp-install': {
-    const cfgPath = claudeConfigPath();
-    const dir = path.dirname(cfgPath);
-    const server = path.join(HERE, '..', 'daemon', 'mcp-server.mjs');
-    let conf = {};
-    try { conf = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); fs.copyFileSync(cfgPath, cfgPath + '.bak'); } catch { /* no config yet */ }
-    conf.mcpServers = conf.mcpServers || {};
-    conf.mcpServers.continuum = { command: process.execPath, args: [server] };
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(cfgPath, JSON.stringify(conf, null, 2) + '\n');
+    const cfgPath = installMcp();
     const quit = process.platform === 'win32' ? 'fully quit Claude Desktop (right-click the tray icon → Quit)' : 'fully quit Claude Desktop (Cmd+Q)';
     console.log(`✓ Continuum added to Claude Desktop.\n  ${cfgPath}\n\nLast step: ${quit} and reopen it.\nThen ask it: "what was I working on?"`);
     break;
@@ -432,5 +482,5 @@ switch (cmd) {
     break;
   }
   default:
-    console.log('continuum <verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  app           same dashboard in a native app window (no browser tab)\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  extract       structured records: email/message/ticket/action + Office activity\n  remind        what to stay on top of (reminders + open commitments + due tickets)\n  say "<cmd>"   run a voice command (remind me to… / draft an email to…)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
+    console.log('continuum <setup|verify|start|dashboard|mcp-install|preferences|doctor|config|prune|eval>\n\n  setup         detect your installed AI (Ollama/OpenAI/Anthropic) + configure to match\n  verify        prove it works in 30s (no setup)\n  start         live capture → local store\n  dashboard     timeline + search at localhost:3939\n  app           same dashboard in a native app window (no browser tab)\n  mcp-install   add Continuum to Claude Desktop (one step)\n  mcp-config    print the MCP config (for other clients)\n  preferences   review + curate how your agents work for you\n  doctor        environment check\n  config        resolved config\n  prune [days]  discharge raw episodes older than the retention window\n  tasks         open commitments from your correspondence (not yet closed)\n  extract       structured records: email/message/ticket/action + Office activity\n  remind        what to stay on top of (reminders + open commitments + due tickets)\n  say "<cmd>"   run a voice command (remind me to… / draft an email to…)\n  digest        post/print a summary of open commitments (run on a schedule)\n  eval          capture/perception quality over local fixtures');
 }

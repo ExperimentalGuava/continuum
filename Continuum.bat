@@ -31,6 +31,12 @@ goto :run
 :skipPy
 echo   [i] Python not found - voice/mic will be off. Install Python and re-run to enable it.
 
+REM --- First run: detect installed AI (Ollama/OpenAI/Anthropic) and configure to match ---
+if not exist "%USERPROFILE%\.continuum\config.json" (
+  echo   First run: configuring Continuum to your installed AI...
+  node bin\continuum.mjs setup
+)
+
 :run
 echo(
 echo   Opening Continuum in its own window ...
