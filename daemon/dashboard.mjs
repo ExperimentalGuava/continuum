@@ -505,11 +505,11 @@ function controlSwitches(){
   var au=(S.state&&S.state.audio)||{};
   var capOn=dm.running, micOn=!!(au.enabled&&!au.off);
   var capDot=dm.stopping?'<span class="dot warn"></span>':capOn?'<span class="dot on"></span>':'';
-  var micDot=au.recording?'<span class=dot style="background:var(--danger)"></span>':'';
+  var micDot=micOn?'<span class="dot on"></span>':'';
   return '<div class=block>'+
-    '<div class=line><span class=k>'+capDot+'Capture</span><div class="sw'+(capOn?' on':'')+'" id=capturesw><span class=knob></span></div></div>'+
-    '<div class=line><span class=k>'+micDot+'Mic</span><div class="sw'+(micOn?' on':'')+'" id=micsw><span class=knob></span></div></div>'+
-    '<p style="margin-top:10px;margin-bottom:0">'+(capOn?('On — capturing your work apps'+(micOn?', mic listening for commands.':'.')):'Off. Flip Capture on to start.')+'</p></div>';
+    '<div class=line><span class=k>'+capDot+'Text Capture</span><div class="sw'+(capOn?' on':'')+'" id=capturesw><span class=knob></span></div></div>'+
+    '<div class=line><span class=k>'+micDot+'Voice Capture</span><div class="sw'+(micOn?' on':'')+'" id=micsw><span class=knob></span></div></div>'+
+    '<p style="margin-top:10px;margin-bottom:0">'+(capOn?('On. Capturing your work apps'+(micOn?', voice listening for commands.':'.')):'Off. Flip Text Capture on to start.')+'</p></div>';
 }
 function summaryBlock(){
   var s=S.state&&S.state.summary; if(!s)return '';
@@ -573,7 +573,7 @@ function sessionRow(s){
 function renderSessions(){
   if(S.sessionDetail){renderSessionDetail();return;}
   main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
-    '<div class=vh>Sessions</div><div class=vsub>Each capture run — what the daemon collected while active.</div>'+
+    '<div class=vh>Sessions</div><div class=vsub>Each capture run. What the daemon collected while active.</div>'+
     '<div class=rows id=srows style="margin-top:14px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.sessions){loadSessions();return;}
   var el=document.getElementById('srows');if(!el)return;
@@ -601,7 +601,7 @@ function reminderRow(it){
 }
 function renderReminders(){
   main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
-    '<div class=vh>Reminders</div><div class=vsub>What to stay on top of — your reminders, open commitments, and due tickets.</div>'+
+    '<div class=vh>Reminders</div><div class=vsub>What to stay on top of: your reminders, open commitments, and due tickets.</div>'+
     '<div class=block id=remlist><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.reminders){loadRemindersView();return;}
   var el=document.getElementById('remlist');if(!el)return;
@@ -617,7 +617,7 @@ function draftCard(d){
 }
 function renderDrafts(){
   main.innerHTML='<button class=back id=back>'+ICON.back+'Capture</button>'+
-    '<div class=vh>Drafts</div><div class=vsub>Emails drafted by voice — review, copy, paste into Outlook.</div>'+
+    '<div class=vh>Drafts</div><div class=vsub>Emails drafted by voice. Review, copy, paste into Outlook.</div>'+
     '<div id=draftlist style="margin-top:18px"><div class=muted style="padding:18px 0">Loading&hellip;</div></div>';
   if(!S.drafts){loadDraftsView();return;}
   var el=document.getElementById('draftlist');if(!el)return;
@@ -627,7 +627,7 @@ function renderDrafts(){
 /* ---------- PRIVACY & DATA ---------- */
 function renderPrivacy(){
   var st=S.state;if(!st)return;
-  var excl=st.exclude.length?'<div class=tags>'+st.exclude.map(function(a){return '<span class=taga>'+esc(a)+'<span class=x data-unexcl="'+esc(a)+'">'+ICON.x+'</span></span>';}).join('')+'</div>':'<p>No apps excluded — everything visible is captured.</p>';
+  var excl=st.exclude.length?'<div class=tags>'+st.exclude.map(function(a){return '<span class=taga>'+esc(a)+'<span class=x data-unexcl="'+esc(a)+'">'+ICON.x+'</span></span>';}).join('')+'</div>':'<p>No apps excluded. Everything visible is captured.</p>';
   var opts=st.apps.filter(function(a){return st.exclude.indexOf(a)<0;}).map(function(a){return '<option value="'+esc(a)+'">'+esc(a)+'</option>';}).join('');
   var dm=st.daemon||{running:false};
   var dstat=dm.running?('<span class="dot on"></span>Running'+(dm.start?' since '+clock(dm.start):'')):(dm.stopping?'<span class="dot warn"></span>Stopping…':'<span class=dot></span>Stopped');
@@ -637,16 +637,16 @@ function renderPrivacy(){
     '<div class=block><h3>Capture daemon</h3><p>Activate to begin a capture session; stop to end it. Each run is grouped under <b>Sessions</b>.</p>'+
       '<div class=line><span class=k>'+dstat+'</span>'+dbtn+'</div></div>'+
     '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
-      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused — capture is held; the session stays open.':'Live — capturing while the daemon runs. Pause holds capture without ending the session.')+'</p></div>'+
+      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Live. Capturing while the daemon runs. Pause holds capture without ending the session.')+'</p></div>'+
     '<div class=block><div class=line><span class=k>Call transcription'+((st.audio&&st.audio.recording)?' <span class=dot style="background:var(--danger)"></span>':'')+'</span><div class="sw'+((st.audio&&st.audio.enabled&&!st.audio.off)?' on':'')+'" id=audiosw><span class=knob></span></div></div>'+
-      '<p style="margin-top:12px;margin-bottom:0">'+((st.audio&&st.audio.recording)?'Recording — transcribing the call on-device.':(st.audio&&st.audio.enabled&&!st.audio.off)?'On (idle) — will transcribe Teams calls on-device when one is active.':'Off. Transcribes Teams calls on-device (transcribe-then-delete); your track and the other party are separate, and the remote side never leaves this device. Toggling off is an instant kill-switch.')+'</p></div>'+
+      '<p style="margin-top:12px;margin-bottom:0">'+((st.audio&&st.audio.recording)?'Recording. Transcribing the call on device.':(st.audio&&st.audio.enabled&&!st.audio.off)?'On (idle). Will transcribe Teams calls on device when one is active.':'Off. Transcribes Teams calls on device (transcribe then delete); your track and the other party are separate, and the remote side never leaves this device. Toggling off is an instant kill switch.')+'</p></div>'+
     '<div class=block><h3>Excluded apps</h3><p>Apps Continuum should never capture. Applies next time you start capture.</p>'+excl+
       '<div class=addrow><select id=exsel>'+(opts||'<option value="">(no apps yet)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
     '<div class=block><h3>Connect to Claude</h3><p>Let Claude read your memory over MCP.</p><div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
       (st.mcp.claude?'':'<p style="margin-top:13px;margin-bottom:0">Run <code>continuum mcp-install</code>, then restart Claude.</p>')+'</div>'+
-    '<div class=block><h3>What your agent asked</h3><p>Every query an agent made to your memory — all on this device.</p>'+
+    '<div class=block><h3>What your agent asked</h3><p>Every query an agent made to your memory, all on this device.</p>'+
       ((st.mcp.queries&&st.mcp.queries.length)?'<div>'+st.mcp.queries.map(function(q){return '<div class=line><span class=k>'+esc(q.tool)+(q.detail?': '+esc(String(q.detail).slice(0,52)):'')+'</span><span class=v>'+esc(clock(q.t))+' &middot; '+(q.results||0)+'</span></div>';}).join('')+'</div>':'<p style="color:var(--faint);margin:0">No agent queries yet.</p>')+'</div>'+
-    '<div class=block><h3>Your data</h3><p>Stored only on this machine. Delete anything, anytime — it&rsquo;s gone for good.</p>'+
+    '<div class=block><h3>Your data</h3><p>Stored only on this machine. Delete anything, anytime. It&rsquo;s gone for good.</p>'+
       '<div class=btnrow><button class=btn data-clear=lasthour>Last hour</button><button class=btn data-clear=today>Today</button><button class="btn danger" data-clear=all>Everything</button></div>'+
       '<div class=line style="margin-top:16px"><span class=k>Location</span><span class=path>'+esc(st.dataDir)+'</span></div>'+
       '<div class=line><span class=k>Total captured</span><span class=v>'+st.stats.total+' moments</span></div></div>';
