@@ -1,0 +1,95 @@
+name: windows-installer
+
+# Builds the one-file Continuum-Setup.exe on a real Windows runner: compiles the capture
+# engine, bundles a portable Node runtime + the app, and packages everything with Inno
+# Setup. The result is a downloadable installer — no Node/Rust/Python needed on the user's
+# PC. Runs on demand and on v* tags (where it's attached to the GitHub Release).
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+env:
+  NODE_VERSION: v20.17.0
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # Static CRT => the capture .exe needs no VC++ redistributable on target machines.
+      - name: Build capture engine (release, static CRT)
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --target x86_64-pc-windows-msvc --manifest-path daemon/stage1/win-capture/Cargo.toml
+
+      - name: Regenerate app icon
+        run: node packaging/windows/make-icon.mjs
+
+      - name: Stage the installer payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stage = "dist/continuum"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          # App sources (no runtime npm deps — pure Node stdlib).
+          Copy-Item bin -Destination $stage -Recurse -Force
+          Copy-Item examples -Destination $stage -Recurse -Force
+          Copy-Item package.json,README.md,LICENSE,NOTICE,CHANGELOG.md -Destination $stage -Force
+          Copy-Item packaging/windows/continuum.ico -Destination $stage -Force
+
+          # daemon/ without the Rust build tree (robocopy: exit code < 8 means success).
+          robocopy daemon "$stage/daemon" /E /XD target /NFL /NDL /NJH /NJS /NP
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+          $global:LASTEXITCODE = 0
+
+          # Drop the prebuilt capture exe where ensureWinHelper() looks for it.
+          $rel = "$stage/daemon/stage1/win-capture/target/release"
+          New-Item -ItemType Directory -Force -Path $rel | Out-Null
+          Copy-Item "daemon/stage1/win-capture/target/x86_64-pc-windows-msvc/release/continuum-capture.exe" -Destination "$rel/continuum-capture.exe" -Force
+
+          # Portable Node runtime → {app}\node\node.exe
+          $zip = "node-$env:NODE_VERSION-win-x64.zip"
+          Invoke-WebRequest "https://nodejs.org/dist/$env:NODE_VERSION/$zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath nodetmp -Force
+          New-Item -ItemType Directory -Force -Path "$stage/node" | Out-Null
+          Copy-Item "nodetmp/node-$env:NODE_VERSION-win-x64/node.exe" -Destination "$stage/node/node.exe" -Force
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $src = (Resolve-Path dist/continuum).Path
+          $out = (Resolve-Path dist).Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            "/DSrcDir=$src" "/DOutDir=$out" "/DAppVer=$ver" packaging/windows/continuum.iss
+
+      - name: Checksum
+        shell: pwsh
+        run: (Get-FileHash dist/Continuum-Setup.exe -Algorithm SHA256).Hash | Tee-Object -FilePath dist/Continuum-Setup.exe.sha256
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Continuum-Setup-windows-x64
+          path: |
+            dist/Continuum-Setup.exe
+            dist/Continuum-Setup.exe.sha256
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Continuum-Setup.exe
+            dist/Continuum-Setup.exe.sha256

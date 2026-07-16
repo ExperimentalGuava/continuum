@@ -13,6 +13,9 @@ daemon/stage1/audio
 
 # packaging artifacts
 packaging/dist/
+dist/
+packaging/windows/nodetmp/
+packaging/windows/continuum-256.png
 
 # local data store
 *.ndjson

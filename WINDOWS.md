@@ -2,9 +2,26 @@
 
 Goal: download, double-click, use. No command line for day-to-day running.
 
-## One-time setup
+## Recommended: the installer (nothing else to install)
 
-Continuum currently needs three things installed (a future bundled installer will remove these):
+Download **`Continuum-Setup.exe`** and double-click it. It bundles everything — the app,
+a Node runtime, and the capture engine — so you do **not** need Node, Rust, or Python.
+On install it detects the AI you already have and configures Continuum to match, then
+adds a Start-Menu and desktop shortcut with the Continuum icon.
+
+- **Where to get it:** the [Releases page](https://github.com/nikhilkagita04/continuum/releases)
+  (attached to each `v*` release), or build it yourself — see
+  [`packaging/windows/README.md`](packaging/windows/README.md).
+- First launch: Windows SmartScreen may warn because the installer isn't code-signed yet
+  — choose *More info → Run anyway*. (Signing is on the roadmap.)
+- *Optional:* install [Python 3](https://python.org) if you want the mic/voice feature;
+  everything else works without it.
+
+---
+
+## Alternative: run from source (for developers)
+
+Continuum needs three things installed for the from-source path:
 
 - **Node.js** (LTS) — https://nodejs.org  · *required*
 - **Rust** — https://rustup.rs  · *required once*, to build the capture engine
