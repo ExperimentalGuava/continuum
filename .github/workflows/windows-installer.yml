@@ -43,6 +43,7 @@ jobs:
           Copy-Item examples -Destination $stage -Recurse -Force
           Copy-Item package.json,README.md,LICENSE,NOTICE,CHANGELOG.md -Destination $stage -Force
           Copy-Item packaging/windows/continuum.ico -Destination $stage -Force
+          Copy-Item packaging/windows/launch.vbs -Destination $stage -Force
 
           # daemon/ without the Rust build tree (robocopy: exit code < 8 means success).
           robocopy daemon "$stage/daemon" /E /XD target /NFL /NDL /NJH /NJS /NP

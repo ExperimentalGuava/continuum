@@ -46,15 +46,17 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#SrcDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\Continuum"; Filename: "{#NodeExe}"; Parameters: """{#Entry}"" app"; WorkingDir: "{app}"; IconFilename: "{app}\continuum.ico"
-Name: "{userdesktop}\Continuum"; Filename: "{#NodeExe}"; Parameters: """{#Entry}"" app"; WorkingDir: "{app}"; IconFilename: "{app}\continuum.ico"; Tasks: desktopicon
+; Shortcuts point at launch.vbs (windowless shim) — never at node.exe directly, which
+; would pop a console window on every launch.
+Name: "{group}\Continuum"; Filename: "{app}\launch.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\continuum.ico"
+Name: "{userdesktop}\Continuum"; Filename: "{app}\launch.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\continuum.ico"; Tasks: desktopicon
 Name: "{group}\Uninstall Continuum"; Filename: "{uninstallexe}"
 
 [Run]
 ; Configure Continuum to whatever AI is already installed (auto-detect, non-interactive).
 Filename: "{#NodeExe}"; Parameters: """{#Entry}"" setup --yes"; WorkingDir: "{app}"; Flags: runhidden; StatusMsg: "Detecting your AI and configuring Continuum…"
-; Offer to launch on the final page.
-Filename: "{#NodeExe}"; Parameters: """{#Entry}"" app"; WorkingDir: "{app}"; Description: "Launch Continuum now"; Flags: postinstall nowait skipifsilent
+; Offer to launch on the final page — via the windowless shim (shellexec runs the .vbs).
+Filename: "{app}\launch.vbs"; Description: "Launch Continuum now"; Flags: postinstall nowait skipifsilent shellexec
 
 [UninstallDelete]
 ; The user's captured data lives in %USERPROFILE%\.continuum and is intentionally

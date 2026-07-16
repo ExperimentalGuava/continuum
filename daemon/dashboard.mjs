@@ -784,4 +784,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 const PORT = process.env.CONTINUUM_PORT || process.env.PORT || 3939;
+// If the port is already taken, Continuum is already running — exit calmly instead of
+// letting an unhandled 'error' event crash the process (which, when a launcher relaunches
+// it, shows up as console windows flashing open and shut).
+server.on('error', (e) => {
+  if (e && e.code === 'EADDRINUSE') { console.error(`continuum dashboard already running at http://localhost:${PORT}`); process.exit(0); }
+  console.error(`continuum dashboard error: ${(e && e.message) || e}`); process.exit(1);
+});
 server.listen(PORT, () => console.error(`continuum dashboard → http://localhost:${PORT}`));

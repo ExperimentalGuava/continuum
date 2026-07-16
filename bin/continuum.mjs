@@ -321,8 +321,16 @@ async function start() {
       CONTINUUM_EXCLUDE: [process.env.CONTINUUM_EXCLUDE, ...cfg.capture.exclude].filter(Boolean).join(','),
       CONTINUUM_ALLOW: (cfg.capture.allow || []).join(','),   // capture only the configured work apps ([] = all)
     };
-    captureChild = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'], env });
-    createInterface({ input: captureChild.stdout }).on('line', onLine);
+    // windowsHide: never flash a console window for the native helper. The error/exit
+    // handlers keep a helper that can't start (or exits immediately) from either crashing
+    // the daemon via an unhandled 'error' event or being relaunched in a tight loop.
+    captureChild = spawn(bin, [], { stdio: ['ignore', 'pipe', 'inherit'], env, windowsHide: true });
+    captureChild.on('error', (e) => { captureChild = null; console.error(`  capture helper could not start: ${e.message}`); });
+    captureChild.on('exit', (code) => {
+      captureChild = null;
+      if (code) console.error(`  capture helper exited (code ${code}) — capture is off. Run \`continuum doctor\`. Not relaunching.`);
+    });
+    if (captureChild.stdout) createInterface({ input: captureChild.stdout }).on('line', onLine);
 
     // Call transcription (#10) — OPT-IN, OFF BY DEFAULT. Reconciled lifecycle so the dashboard toggle
     // and the instant kill-switch take effect WITHOUT a restart: the helper runs only while the master
@@ -340,7 +348,7 @@ async function start() {
       if (audioChild || audioUnavailable) return;
       if (!fs.existsSync(LISTENER)) { audioUnavailable = true; return; }
       const py = process.platform === 'win32' ? 'python' : 'python3';
-      audioChild = spawn(py, [LISTENER], { stdio: ['ignore', 'pipe', 'inherit'], env });
+      audioChild = spawn(py, [LISTENER], { stdio: ['ignore', 'pipe', 'inherit'], env, windowsHide: true });
       audioChild.on('error', () => { audioChild = null; audioUnavailable = true; console.error('  mic: could not start listener — install Python + deps: pip install numpy sounddevice webrtcvad-wheels faster-whisper'); });
       createInterface({ input: audioChild.stdout }).on('line', onLine);
       audioChild.on('exit', () => { audioChild = null; });
