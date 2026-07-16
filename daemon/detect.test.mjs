@@ -1,6 +1,6 @@
 // detect — the "configure to whatever AI is installed" decision logic.
 // Pure + injected probes: no network, no real machine state.
-import { chooseConfig, applyChoice, detectEnvironment, probeOllama } from './detect.mjs';
+import { chooseConfig, applyChoice, detectEnvironment, probeOllama, classifyKey } from './detect.mjs';
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n}  ${x}`); } };
@@ -93,6 +93,15 @@ const noOllama = { running: false, models: [], chatModels: [], embedModels: [] }
   });
   ok('no Claude Desktop when config path missing', det.claudeDesktop === false);
   ok('no keys when neither env nor file', det.keys.openai === '' && det.keys.anthropic === '');
+}
+
+// --- classifyKey: recognize a pasted key by prefix -----------------------------
+{
+  ok('sk-ant-… → anthropic', classifyKey('sk-ant-abc123')?.provider === 'anthropic');
+  ok('sk-… → openai', classifyKey('sk-abc123')?.provider === 'openai');
+  ok('trims whitespace around the key', classifyKey('  sk-ant-xyz  ')?.key === 'sk-ant-xyz');
+  ok('empty → null (stay local)', classifyKey('') === null && classifyKey('   ') === null);
+  ok('garbage → null (not a key)', classifyKey('hello there') === null);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

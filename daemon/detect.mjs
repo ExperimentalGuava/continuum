@@ -112,6 +112,17 @@ export function chooseConfig(det) {
   return { llm, embeddings, reasons };
 }
 
+// Classify a pasted API key by its prefix so setup knows which provider it unlocks.
+// Anthropic keys start with `sk-ant-`; OpenAI keys start with `sk-`. Returns
+// { provider, key } or null when the input is empty / not a recognizable key.
+export function classifyKey(input) {
+  const key = (input || '').trim();
+  if (!key) return null;
+  if (/^sk-ant/i.test(key)) return { provider: 'anthropic', key };
+  if (/^sk-/i.test(key)) return { provider: 'openai', key };
+  return null;
+}
+
 // Merge chosen providers into an existing raw config without clobbering unrelated
 // settings or persisting any secret (keys stay in env / are set by the user).
 export function applyChoice(rawConfig, choice) {

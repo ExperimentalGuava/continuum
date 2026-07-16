@@ -103,11 +103,33 @@ function confirm(question, assumeYes) {
   return new Promise((res) => rl.question(`${question} [Y/n] `, (a) => { rl.close(); res(!/^n/i.test(a.trim())); }));
 }
 
+// Free-text prompt (returns the trimmed line). Empty string when non-interactive.
+function prompt(question) {
+  if (!process.stdin.isTTY) return Promise.resolve('');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((res) => rl.question(question, (a) => { rl.close(); res((a || '').trim()); }));
+}
+
 // `continuum setup` — detect the user's installed AI and adjust the config to match.
 async function setup({ assumeYes = false } = {}) {
   console.log('\ncontinuum setup — detecting your AI\n');
   const raw = readRawConfig();
-  const det = await detectEnvironment({ fileKeys: raw.keys || {}, claudeConfigPath });
+  let det = await detectEnvironment({ fileKeys: raw.keys || {}, claudeConfigPath });
+
+  // No key found → offer to paste one now (interactive only) for higher-quality AI.
+  // A pasted key is saved to config so it's picked up from here on; Enter stays local.
+  if (!det.keys.openai && !det.keys.anthropic && !assumeYes && process.stdin.isTTY) {
+    const entered = await prompt('  No API key found. Paste an OpenAI (sk-…) or Anthropic (sk-ant-…) key for higher-quality AI,\n  or press Enter to stay free + local: ');
+    const k = classifyKey(entered);
+    if (entered && !k) {
+      console.log('  (Unrecognized key format — staying local. Keys start with sk- or sk-ant-.)');
+    } else if (k) {
+      raw.keys = { ...(raw.keys || {}), [k.provider]: k.key };
+      det = { ...det, keys: { ...det.keys, [k.provider]: 'config' } };
+      console.log(`  ✓ Saved your ${k.provider} key.`);
+    }
+  }
+
   const choice = chooseConfig(det);
 
   console.log('  Detected:');
