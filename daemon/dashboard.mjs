@@ -513,7 +513,7 @@ function controlSwitches(){
 }
 function summaryBlock(){
   var s=S.state&&S.state.summary; if(!s)return '';
-  var kinds=Object.keys(s.byKind||{}).sort(function(a,b){return s.byKind[b]-s.byKind[a];}).map(function(k){return s.byKind[k]+' '+esc(k);}).join('  ·  ');
+  var kinds=Object.keys(s.byKind||{}).sort(function(a,b){return s.byKind[b]-s.byKind[a];}).map(function(k){return s.byKind[k]+' '+esc(k)+(s.byKind[k]===1?'':'s');}).join('  ·  ');
   return '<div class=block><div class=line><span class=k>Captured today</span><span class=v>'+(s.today||0)+' moment'+(s.today===1?'':'s')+'</span></div>'+
     (kinds?'<p style="margin-top:10px;margin-bottom:0">'+kinds+'</p>':'')+
     (s.live?'<p style="margin-top:6px;margin-bottom:0;color:var(--sec)">'+esc(s.live)+'</p>':'')+'</div>';
@@ -530,10 +530,10 @@ function loadControlLists(){
   getJSON('/api/reminders').then(function(d){S.reminders=d;var el=document.getElementById('remblock');if(!el)return;el.innerHTML=d.length?d.map(reminderRow).join(''):'<p class=muted style="padding:4px 2px 12px">Nothing pressing. Say &ldquo;remind me to&hellip;&rdquo;.</p>';});
   getJSON('/api/drafts').then(function(d){S.drafts=d;var el=document.getElementById('draftblock');if(!el)return;el.innerHTML=d.length?d.map(draftRowCompact).join(''):'<p class=muted style="padding:4px 2px 12px">No drafts yet. Say &ldquo;draft an email to&hellip;&rdquo;.</p>';});
   getJSON('/api/timeline').then(function(d){var el=document.getElementById('momblock');if(!el)return;el.innerHTML=d.length?d.slice(0,30).map(momentLine).join(''):'<p class=muted style="padding:4px 2px 12px">No moments yet. Flip Capture on and open a work app.</p>';});
-  getJSON('/api/heard').then(function(d){var el=document.getElementById('heardblock');if(!el)return;el.innerHTML=d.length?d.slice(-10).reverse().map(function(h){return '<div class=line><span class=k>'+esc(h.text)+'</span><span class=v>'+esc(clock(h.t))+'</span></div>';}).join(''):'<p class=muted style="padding:4px 2px 12px">Mic off, or nothing heard yet.</p>';});
+  getJSON('/api/heard').then(function(d){var el=document.getElementById('heardblock');if(!el)return;el.innerHTML=d.length?d.slice(-10).reverse().map(function(h){return '<div class=line><span class=k>'+esc(h.text)+'</span><span class=v>'+esc(clock(h.t))+'</span></div>';}).join(''):'<p class=muted style="padding:4px 2px 12px">Voice Capture off, or nothing heard yet.</p>';});
 }
 function renderControl(){
-  main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>Continuum</h1>'+
+  main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>'+greet()+'</h1>'+
     '<div id=cswitch style="margin-top:22px">'+controlSwitches()+'</div>'+
     '<div id=csum style="margin-top:14px">'+summaryBlock()+'</div>'+
     '<div class=seclabel style="margin-top:24px">Listening</div><div class=block id=heardblock><div class=muted style="padding:10px 0">&hellip;</div></div>'+
