@@ -335,8 +335,10 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 .row .body{flex:1;min-width:0}
 .row .mt{font-size:16px;letter-spacing:-.011em;line-height:1.4}
 .row .mm{margin-top:4px;font-size:13px;color:var(--sec)}
-.row .chev{width:18px;height:18px;color:var(--faint);flex:none;transition:transform .2s var(--ease)}
+.chev{width:18px;height:18px;color:var(--faint);flex:none;transition:transform .2s var(--ease)}
 .row.open .chev{transform:rotate(90deg)}
+.seclabel[data-sec]{cursor:pointer;user-select:none;-webkit-user-select:none}
+.seclabel[data-sec].open .chev{transform:rotate(90deg)}
 .tag{font-size:11px;font-weight:560;color:var(--sec);background:var(--fill);border-radius:6px;padding:3px 9px;white-space:nowrap;letter-spacing:0}
 .full{font-size:14.5px;color:var(--sec);line-height:1.55;padding:2px 2px 18px;white-space:pre-wrap;word-break:break-word}
 .full .auth{color:var(--fg);margin-bottom:9px}
@@ -440,7 +442,7 @@ var ICON={
 };
 var SRC={ocr:'screen',screen:'screen',input:'typed',ax:'app',file:'file',clipboard:'clip',audio:'audio'};
 var root=document.documentElement,main=document.getElementById('main');
-var S={view:'control',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null,sessions:null,sessionDetail:null,drafts:null,reminders:null};
+var S={view:'control',state:null,ins:null,result:null,query:'',facet:{q:''},open:{},prefs:null,editPref:null,sessions:null,sessionDetail:null,drafts:null,reminders:null,sec:{voice:true,text:true}};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function clock(ms){if(!ms)return'';return new Date(ms).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 function dur(ms){var m=Math.round(ms/60000);if(m<1)return'<1m';if(m<60)return m+'m';var h=Math.floor(m/60);return h+'h '+(m%60)+'m';}
@@ -536,10 +538,12 @@ function renderControl(){
   main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>'+greet()+'</h1>'+
     '<div id=cswitch style="margin-top:22px">'+controlSwitches()+'</div>'+
     '<div id=csum style="margin-top:14px">'+summaryBlock()+'</div>'+
-    '<div class=seclabel style="margin-top:24px">Listening</div><div class=block id=heardblock><div class=muted style="padding:10px 0">&hellip;</div></div>'+
+    '<div class="seclabel'+(S.sec.voice?' open':'')+'" data-sec=voice style="margin-top:24px">Voice Capture'+ICON.chev+'</div>'+
+    '<div class=secbody'+(S.sec.voice?'':' style="display:none"')+'><div class=block id=heardblock><div class=muted style="padding:10px 0">&hellip;</div></div></div>'+
+    '<div class="seclabel'+(S.sec.text?' open':'')+'" data-sec=text style="margin-top:18px">Text Capture'+ICON.chev+'</div>'+
+    '<div class=secbody'+(S.sec.text?'':' style="display:none"')+'><div class=rows id=momblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div></div>'+
     '<div class=seclabel style="margin-top:18px">Reminders</div><div class=block id=remblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
-    '<div class=seclabel style="margin-top:18px">Drafts</div><div class=block id=draftblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
-    '<div class=seclabel style="margin-top:18px">Recent moments</div><div class=rows id=momblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
+    '<div class=seclabel style="margin-top:18px">Drafts</div><div class=block id=draftblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
   loadControlLists();
 }
 function refreshControl(){ var sw=document.getElementById('cswitch'); if(sw)sw.innerHTML=controlSwitches(); var su=document.getElementById('csum'); if(su)su.innerHTML=summaryBlock(); loadControlLists(); }
@@ -699,6 +703,7 @@ sheet.addEventListener('click',function(e){var b=e.target.closest('[data-go]');i
 
 main.addEventListener('click',function(e){
   var t=e.target;
+  var sec=t.closest('[data-sec]');if(sec){var nm=sec.dataset.sec;S.sec[nm]=!S.sec[nm];sec.classList.toggle('open',S.sec[nm]);var body=sec.nextElementSibling;if(body)body.style.display=S.sec[nm]?'':'none';return;}
   var del=t.closest('[data-del]');if(del){e.stopPropagation();send('/api/episode','DELETE',{hash:del.dataset.del}).then(function(){loadState();if(S.view==='timeline')loadRows();else if(S.result)renderResult();else renderInsights();});return;}
   var cite=t.closest('[data-cite]');if(cite){var el=document.getElementById('src-'+cite.dataset.cite);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('hl');setTimeout(function(){el.classList.remove('hl');},1200);}return;}
   if(t.closest('[data-home]')){home();return;}
