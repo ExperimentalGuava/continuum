@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadConfig, buildDeps, redacted, DATA_DIR, claudeConfigPath, readRawConfig, writeRawConfig } from '../daemon/config.mjs';
+import { loadConfig, buildDeps, redacted, DATA_DIR, CONFIG_PATH, claudeConfigPath, readRawConfig, writeRawConfig } from '../daemon/config.mjs';
 import { detectEnvironment, chooseConfig, applyChoice } from '../daemon/detect.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
 import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction, appendHeard } from '../daemon/store.mjs';
@@ -95,12 +95,24 @@ function installMcp({ onlyIfPresent = false } = {}) {
   return cfgPath;
 }
 
-// One-question yes/no prompt. Auto-yes when not attached to a terminal (e.g. piped
-// first-run) or when `assumeYes` is set, so setup never blocks an unattended launch.
-function confirm(question, assumeYes) {
-  if (assumeYes || !process.stdin.isTTY) return Promise.resolve(true);
+// One-question yes/no prompt. `assumeYes` forces yes (the --yes flag). When not
+// attached to a terminal (piped/first-run) it returns `def` so setup never blocks an
+// unattended launch. `def` also sets which answer a bare Enter takes.
+function confirm(question, { assumeYes = false, def = true } = {}) {
+  if (assumeYes) return Promise.resolve(true);
+  if (!process.stdin.isTTY) return Promise.resolve(def);
+  const hint = def ? '[Y/n]' : '[y/N]';
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((res) => rl.question(`${question} [Y/n] `, (a) => { rl.close(); res(!/^n/i.test(a.trim())); }));
+  return new Promise((res) => rl.question(`${question} ${hint} `, (a) => {
+    rl.close();
+    const s = a.trim();
+    res(s ? !/^n/i.test(s) : def);
+  }));
+}
+
+// Is Continuum already wired into Claude Desktop's MCP config?
+function mcpAlreadyInstalled() {
+  try { const c = JSON.parse(fs.readFileSync(claudeConfigPath(), 'utf8')); return !!(c.mcpServers && c.mcpServers.continuum); } catch { return false; }
 }
 
 // Free-text prompt (returns the trimmed line). Empty string when non-interactive.
@@ -115,6 +127,7 @@ async function setup({ assumeYes = false } = {}) {
   console.log('\ncontinuum setup — detecting your AI\n');
   const raw = readRawConfig();
   let det = await detectEnvironment({ fileKeys: raw.keys || {}, claudeConfigPath });
+  let keyAdded = false;
 
   // No key found → offer to paste one now (interactive only) for higher-quality AI.
   // A pasted key is saved to config so it's picked up from here on; Enter stays local.
@@ -126,35 +139,71 @@ async function setup({ assumeYes = false } = {}) {
     } else if (k) {
       raw.keys = { ...(raw.keys || {}), [k.provider]: k.key };
       det = { ...det, keys: { ...det.keys, [k.provider]: 'config' } };
+      keyAdded = true;
       console.log(`  ✓ Saved your ${k.provider} key.`);
     }
   }
 
   const choice = chooseConfig(det);
+  const configExisted = fs.existsSync(CONFIG_PATH);
+
+  // What's configured now (defaults match config.mjs: llm none, embeddings local).
+  const cur = {
+    llmP: raw.llm?.provider || 'none', llmM: raw.llm?.model || '',
+    embP: raw.embeddings?.provider || 'local', embM: raw.embeddings?.model || '',
+  };
+  const changed = cur.llmP !== choice.llm.provider || cur.llmM !== choice.llm.model ||
+    cur.embP !== choice.embeddings.provider || cur.embM !== choice.embeddings.model;
 
   console.log('  Detected:');
   console.log(`    Anthropic key   ${det.keys.anthropic ? '✓ (' + det.keys.anthropic + ')' : '—'}`);
   console.log(`    OpenAI key      ${det.keys.openai ? '✓ (' + det.keys.openai + ')' : '—'}`);
   console.log(`    Ollama          ${det.ollama.running ? '✓ ' + (det.ollama.models.join(', ') || '(no models pulled)') : '— (not running)'}`);
-  console.log(`    Claude Desktop  ${det.claudeDesktop ? '✓ installed' : '—'}`);
-  console.log('\n  Will configure:');
-  console.log(`    LLM             ${choice.llm.provider}${choice.llm.model ? ' · ' + choice.llm.model : ''}`);
-  console.log(`    Embeddings      ${choice.embeddings.provider}${choice.embeddings.model ? ' · ' + choice.embeddings.model : ''}`);
+  console.log(`    Claude Desktop  ${det.claudeDesktop ? (mcpAlreadyInstalled() ? '✓ connected' : '✓ installed') : '—'}`);
+  if (configExisted) {
+    console.log('\n  Currently configured:');
+    console.log(`    LLM             ${cur.llmP}${cur.llmM ? ' · ' + cur.llmM : ''}`);
+    console.log(`    Embeddings      ${cur.embP}${cur.embM ? ' · ' + cur.embM : ''}`);
+  }
+
+  // Idempotent re-run: config already exists, nothing to change, no new key.
+  if (configExisted && !changed && !keyAdded) {
+    console.log('\n  ✓ Already configured to match your setup — nothing to change.');
+    await offerClaudeDesktop(det, assumeYes);
+    console.log('');
+    return;
+  }
+
+  console.log(changed && configExisted ? '\n  Proposed change:' : '\n  Will configure:');
+  const arrow = (label, from, to) => configExisted && from !== to
+    ? console.log(`    ${label}${to}   (was ${from || '—'})`)
+    : console.log(`    ${label}${to}`);
+  arrow('LLM             ', `${cur.llmP}${cur.llmM ? ' · ' + cur.llmM : ''}`, `${choice.llm.provider}${choice.llm.model ? ' · ' + choice.llm.model : ''}`);
+  arrow('Embeddings      ', `${cur.embP}${cur.embM ? ' · ' + cur.embM : ''}`, `${choice.embeddings.provider}${choice.embeddings.model ? ' · ' + choice.embeddings.model : ''}`);
   console.log('\n  Why:');
   for (const r of choice.reasons) console.log(`    · ${r}`);
   console.log('');
 
-  if (!(await confirm('Apply this configuration?', assumeYes))) { console.log('  Skipped — nothing changed.'); return; }
+  // Changing an existing, deliberate config defaults to "keep current" so a reflex
+  // Enter can't clobber a choice the user made on purpose. Fresh setup defaults to yes.
+  const overwriting = changed && configExisted;
+  const q = overwriting ? 'Overwrite your current configuration?' : 'Apply this configuration?';
+  if (!(await confirm(q, { assumeYes, def: !overwriting }))) { console.log('  Kept your current configuration — nothing changed.'); return; }
   writeRawConfig(applyChoice(raw, choice));
-  console.log(`  ✓ Wrote ${DATA_DIR}/config.json`);
+  console.log(`  ✓ Wrote ${CONFIG_PATH}`);
 
-  // If Claude Desktop is present, connect Continuum to it so it can use your context.
-  if (det.claudeDesktop && await confirm('Connect Continuum to Claude Desktop now?', assumeYes)) {
-    const p = installMcp();
-    const quit = process.platform === 'win32' ? 'quit Claude Desktop from the tray, then reopen it' : 'quit Claude Desktop (Cmd+Q), then reopen it';
-    if (p) console.log(`  ✓ Added Continuum to Claude Desktop (${p}). Last step: ${quit}.`);
-  }
+  await offerClaudeDesktop(det, assumeYes);
   console.log('\n  Done. Run `continuum doctor` to see the resolved setup.\n');
+}
+
+// Offer to connect Continuum to Claude Desktop over MCP — only if it's installed and
+// not already connected (so a re-run doesn't nag).
+async function offerClaudeDesktop(det, assumeYes) {
+  if (!det.claudeDesktop || mcpAlreadyInstalled()) return;
+  if (!(await confirm('Connect Continuum to Claude Desktop now?', { assumeYes }))) return;
+  const p = installMcp();
+  const quit = process.platform === 'win32' ? 'quit Claude Desktop from the tray, then reopen it' : 'quit Claude Desktop (Cmd+Q), then reopen it';
+  if (p) console.log(`  ✓ Added Continuum to Claude Desktop (${p}). Last step: ${quit}.`);
 }
 
 function doctor() {
