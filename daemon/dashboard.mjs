@@ -8,6 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
 import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder, loadReminders, loadHeard, loadLiveCapture, dismissReminder } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
@@ -65,6 +66,13 @@ function mcpInstalled() {
   } catch { return false; }
 }
 
+// Continuum's MCP server config — the "dynamic application" any assistant (Claude, ChatGPT,
+// Cursor, …) points at to read your memory. Same shape mcp-install writes / mcp-config prints.
+function mcpServerConfig() {
+  const server = path.join(path.dirname(fileURLToPath(import.meta.url)), 'mcp-server.mjs');
+  return { command: process.execPath, args: [server] };
+}
+
 // Recent agent queries from the MCP audit log — surfaced in Privacy so the human sees exactly what
 // their agent asked of their memory.
 function recentMcpQueries(n = 8) {
@@ -109,7 +117,7 @@ function state() {
     serviced: servicedApps(),                                  // the curated work apps, for the exclude picker
     apps: [...new Set(eps.map((e) => e.app || 'Unknown'))].sort(),
     sources: [...new Set(eps.flatMap((e) => e.source_mix || []))].sort(),
-    mcp: { claude: mcpInstalled(), queries: recentMcpQueries() },
+    mcp: { claude: mcpInstalled(), queries: recentMcpQueries(), config: mcpServerConfig() },
     daemon: daemonState(),
     audio: audioState(),
     lastAction: readLastAction(),
@@ -430,7 +438,7 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 <div class=toast id=toast></div>
 <div class=sheet id=sheet>
   <button class=mi data-go=privacy><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Privacy &amp; data</button>
-  <button class=mi data-go=privacy id=mcprow><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg>Connect to Claude<span class=sub id=mcpsub>MCP</span></button>
+  <button class=mi data-go=privacy id=mcprow><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.7 stroke-linecap=round stroke-linejoin=round><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/><path d="M9 21h6"/></svg>Connect your assistant<span class=sub id=mcpsub>MCP</span></button>
 </div>
 <script>
 var ICON={
@@ -647,8 +655,12 @@ function renderPrivacy(){
       '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Off. Capturing while Continuum is active. Turn on to hold capture without ending the session.')+'</p></div>'+
     '<div class=block><h3>Exclude Serviced Apps</h3><p>The work apps Continuum captures. Exclude any you never want captured; the rest are captured when in focus. Applies next time you start capture.</p>'+excl+
       '<div class=addrow><select id=exsel>'+(opts||'<option value="">(all excluded)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
-    '<div class=block><h3>Connect to Claude</h3><p>Let Claude read your memory over MCP.</p><div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
-      (st.mcp.claude?'':'<p style="margin-top:13px;margin-bottom:0">Run <code>continuum mcp-install</code>, then restart Claude.</p>')+'</div>'+
+    '<div class=block><h3>Connect your assistant</h3><p>Let Claude, ChatGPT, or any MCP client read your memory over MCP.</p>'+
+      '<div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
+      (st.mcp.claude?'':'<p style="margin-top:10px;margin-bottom:0">One click: run <code>continuum mcp-install</code>, then restart Claude.</p>')+
+      '<p style="margin-top:16px;margin-bottom:8px;color:var(--sec)">For ChatGPT, Cursor, or another MCP client, add this server:</p>'+
+      '<div class=full style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px;background:var(--fill);border-radius:10px;padding:12px 14px;overflow-x:auto">'+esc(JSON.stringify(st.mcp.config||{}, null, 2))+'</div>'+
+      '<div class=btnrow><button class="btn solid" data-copycfg=1>Copy config</button></div></div>'+
     '<div class=block><h3>What your agent asked</h3><p>Every query an agent made to your memory, all on this device.</p>'+
       ((st.mcp.queries&&st.mcp.queries.length)?'<div>'+st.mcp.queries.map(function(q){return '<div class=line><span class=k>'+esc(q.tool)+(q.detail?': '+esc(String(q.detail).slice(0,52)):'')+'</span><span class=v>'+esc(clock(q.t))+' &middot; '+(q.results||0)+'</span></div>';}).join('')+'</div>':'<p style="color:var(--faint);margin:0">No agent queries yet.</p>')+'</div>'+
     '<div class=block><h3>Delete your data</h3><p>Stored only on this machine. Delete anything, anytime. It&rsquo;s gone for good.</p>'+
@@ -719,6 +731,7 @@ main.addEventListener('click',function(e){
   var srow=t.closest('[data-session]');if(srow){S.sessionDetail=srow.dataset.session;renderSessionDetail();return;}
   var sw=t.closest('#pausesw');if(sw){send('/api/pause','POST',{paused:!S.state.paused}).then(function(){loadState(true);});return;}
   var cp=t.closest('[data-copy]');if(cp){var dr=(S.drafts||[]).filter(function(x){return x.id===cp.dataset.copy;})[0];if(dr&&navigator.clipboard){navigator.clipboard.writeText(dr.body||'');cp.textContent='Copied';setTimeout(function(){cp.textContent='Copy';},1200);}return;}
+  var cc=t.closest('[data-copycfg]');if(cc){if(navigator.clipboard&&S.state&&S.state.mcp){navigator.clipboard.writeText(JSON.stringify(S.state.mcp.config,null,2));cc.textContent='Copied';setTimeout(function(){cc.textContent='Copy config';},1200);}return;}
   var dd=t.closest('[data-draftdel]');if(dd){send('/api/drafts','DELETE',{id:dd.dataset.draftdel}).then(function(){S.drafts=null;loadDraftsView();});return;}
   var rmd=t.closest('[data-remdismiss]');if(rmd){send('/api/reminders/dismiss','POST',{key:rmd.dataset.remdismiss}).then(function(){S.reminders=null;if(S.view==='reminders')loadRemindersView();else loadControlLists();});return;}
   var csw=t.closest('#capturesw');if(csw){var con=S.state.daemon&&S.state.daemon.running;send(con?'/api/daemon/stop':'/api/daemon/start','POST',{}).then(function(){bumpPoll();loadState(true);});return;}
