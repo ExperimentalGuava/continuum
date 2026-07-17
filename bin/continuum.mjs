@@ -302,6 +302,21 @@ async function start() {
   try { fs.unlinkSync(PAUSE); } catch { /* not paused */ }
   let q = Promise.resolve();
   const ingest = (ev) => { if (fs.existsSync(PAUSE)) return; q = q.then(() => p.ingest(ev)).catch(() => {}); };
+
+  // Composed text — a compose box, chat input, or search field (ev.authored) — is captured
+  // only when it's COMMITTED, not on every keystroke pause. Buffer the latest draft and flush
+  // it once composing settles (a short gap), the compose target changes, or the user moves to
+  // reading. This skips the per-keystroke UIA reads + embeddings: the resource win the user
+  // asked for, and it keeps only the sent/searched/posted text rather than every draft state.
+  let authoredBuf = null;   // { ev, wid, timer }
+  const commitAuthored = () => {
+    const buf = authoredBuf; authoredBuf = null;
+    if (!buf) return;
+    if (buf.timer) clearTimeout(buf.timer);
+    if (!fs.existsSync(PAUSE)) appendLiveCapture(buf.ev);
+    ingest(buf.ev);
+  };
+
   const onLine = (line) => {
     const s = line.trim(); if (!s) return;
     let ev; try { ev = JSON.parse(s); } catch { return; }   // skip bad line
@@ -311,9 +326,20 @@ async function start() {
       runCommand(ev.text, { llm: deps.llm }).then(actionFeedback).catch(() => {});
       return;
     }
-    // Live Text Capture feed: surface screen captures immediately (before they distill into
-    // an episode on segment close), so the dashboard visibly shows activity as it happens.
-    if (ev && ev.source !== 'audio' && !fs.existsSync(PAUSE)) appendLiveCapture(ev);
+    if (ev && ev.source !== 'audio') {
+      if (ev.authored) {
+        // Typing / composing / searching → buffer the latest text; don't capture the draft live.
+        const wid = ev.window_id || ev.app || '';
+        if (authoredBuf && authoredBuf.wid !== wid) commitAuthored();   // switched compose target
+        if (authoredBuf && authoredBuf.timer) clearTimeout(authoredBuf.timer);
+        authoredBuf = { ev, wid, timer: setTimeout(commitAuthored, 3500) };   // commit when typing settles
+        return;
+      }
+      // Reading, or a different surface (e.g. the thread refreshing after you hit send) →
+      // commit any composed text first, then capture this read.
+      if (authoredBuf) commitAuthored();
+      if (!fs.existsSync(PAUSE)) appendLiveCapture(ev);
+    }
     ingest(ev);
   };
 
@@ -381,6 +407,7 @@ async function start() {
   let stopping = false;
   const shutdown = async (code = 0) => {
     if (stopping) return; stopping = true;
+    try { commitAuthored(); } catch { /* flush any composed-but-uncommitted text */ }
     try { await q; } catch { /* drain */ }
     try { await p.flush(); } catch { /* flush open segments */ }
     try { captureChild?.kill(); } catch { /* gone */ }
