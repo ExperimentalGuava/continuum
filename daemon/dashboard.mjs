@@ -645,7 +645,7 @@ function renderPrivacy(){
     '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device. Turn capture on or off from the home screen.</div>'+
     '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?' on':'')+'" id=pausesw><span class=knob></span></div></div>'+
       '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Off. Capturing while Continuum is active. Turn on to hold capture without ending the session.')+'</p></div>'+
-    '<div class=block><h3>Serviced apps</h3><p>The work apps Continuum captures. Exclude any you never want captured; the rest are captured when in focus. Applies next time you start capture.</p>'+excl+
+    '<div class=block><h3>Exclude Serviced Apps</h3><p>The work apps Continuum captures. Exclude any you never want captured; the rest are captured when in focus. Applies next time you start capture.</p>'+excl+
       '<div class=addrow><select id=exsel>'+(opts||'<option value="">(all excluded)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
     '<div class=block><h3>Connect to Claude</h3><p>Let Claude read your memory over MCP.</p><div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
       (st.mcp.claude?'':'<p style="margin-top:13px;margin-bottom:0">Run <code>continuum mcp-install</code>, then restart Claude.</p>')+'</div>'+
