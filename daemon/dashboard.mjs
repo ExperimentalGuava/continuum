@@ -643,10 +643,8 @@ function renderPrivacy(){
   var opts=serviced.filter(function(c){return st.exclude.indexOf(c.key)<0;}).map(function(c){return '<option value="'+esc(c.key)+'">'+esc(c.label)+'</option>';}).join('');
   main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
     '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device. Turn capture on or off from the home screen.</div>'+
-    '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
-      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Live. Capturing while Continuum is active. Pause holds capture without ending the session.')+'</p></div>'+
-    '<div class=block><div class=line><span class=k>Call transcription'+((st.audio&&st.audio.recording)?' <span class=dot style="background:var(--danger)"></span>':'')+'</span><div class="sw'+((st.audio&&st.audio.enabled&&!st.audio.off)?' on':'')+'" id=audiosw><span class=knob></span></div></div>'+
-      '<p style="margin-top:12px;margin-bottom:0">'+((st.audio&&st.audio.recording)?'Recording. Transcribing the call on device.':(st.audio&&st.audio.enabled&&!st.audio.off)?'On (idle). Will transcribe Teams calls on device when one is active.':'Off. Transcribes Teams calls on device (transcribe then delete); your track and the other party are separate, and the remote side never leaves this device. Toggling off is an instant kill switch.')+'</p></div>'+
+    '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?' on':'')+'" id=pausesw><span class=knob></span></div></div>'+
+      '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Off. Capturing while Continuum is active. Turn on to hold capture without ending the session.')+'</p></div>'+
     '<div class=block><h3>Serviced apps</h3><p>The work apps Continuum captures. Exclude any you never want captured; the rest are captured when in focus. Applies next time you start capture.</p>'+excl+
       '<div class=addrow><select id=exsel>'+(opts||'<option value="">(all excluded)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
     '<div class=block><h3>Connect to Claude</h3><p>Let Claude read your memory over MCP.</p><div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
@@ -720,7 +718,6 @@ main.addEventListener('click',function(e){
   var dsc=t.closest('[data-discard]');if(dsc){e.stopPropagation();if(confirm('Discard this session’s data? This deletes its captured moments and cannot be undone.'))send('/api/sessions/discard','POST',{id:dsc.dataset.discard}).then(function(){S.sessions=null;S.sessionDetail=null;loadSessions();});return;}
   var srow=t.closest('[data-session]');if(srow){S.sessionDetail=srow.dataset.session;renderSessionDetail();return;}
   var sw=t.closest('#pausesw');if(sw){send('/api/pause','POST',{paused:!S.state.paused}).then(function(){loadState(true);});return;}
-  var asw=t.closest('#audiosw');if(asw){var on=S.state.audio&&S.state.audio.enabled&&!S.state.audio.off;send('/api/audio','POST',{enabled:!on}).then(function(){loadState(true);});return;}
   var cp=t.closest('[data-copy]');if(cp){var dr=(S.drafts||[]).filter(function(x){return x.id===cp.dataset.copy;})[0];if(dr&&navigator.clipboard){navigator.clipboard.writeText(dr.body||'');cp.textContent='Copied';setTimeout(function(){cp.textContent='Copy';},1200);}return;}
   var dd=t.closest('[data-draftdel]');if(dd){send('/api/drafts','DELETE',{id:dd.dataset.draftdel}).then(function(){S.drafts=null;loadDraftsView();});return;}
   var rmd=t.closest('[data-remdismiss]');if(rmd){send('/api/reminders/dismiss','POST',{key:rmd.dataset.remdismiss}).then(function(){S.reminders=null;if(S.view==='reminders')loadRemindersView();else loadControlLists();});return;}
