@@ -29,16 +29,6 @@ jobs:
           RUSTFLAGS: "-C target-feature=+crt-static"
         run: cargo build --release --target x86_64-pc-windows-msvc
 
-      # --- Code-signing slots in HERE, once an Authenticode cert is in org/repo secrets. ---
-      # - name: Code-sign
-      #   shell: pwsh
-      #   run: |
-      #     $exe = "target/x86_64-pc-windows-msvc/release/continuum-capture.exe"
-      #     $pfx = "$env:RUNNER_TEMP/cert.pfx"
-      #     [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String("${{ secrets.CODESIGN_PFX_B64 }}"))
-      #     & signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-      #       /f $pfx /p "${{ secrets.CODESIGN_PASSWORD }}" $exe
-
       - name: Checksum
         shell: pwsh
         run: |
