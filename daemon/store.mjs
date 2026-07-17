@@ -95,6 +95,29 @@ export function appendHeard(text, now = Date.now()) {
   } catch { /* non-fatal */ }
 }
 
+// --- live screen-capture feed: the mirror of `heard` for Text Capture. Written on every
+// capture event so the dashboard can show activity IMMEDIATELY, without waiting for a
+// segment to close into an episode. Deduped against the last entry so a re-read of the
+// same window doesn't spam the feed. ---
+export const LIVE_CAPTURE_FILE = path.join(DATA_DIR, 'live-capture.ndjson');
+export function loadLiveCapture() {
+  try { return fs.readFileSync(LIVE_CAPTURE_FILE, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); }
+  catch { return []; }
+}
+export function appendLiveCapture(ev, now = Date.now()) {
+  try {
+    const app = (ev && ev.app) || 'Unknown';
+    const text = String((ev && ev.text) || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    if (!text) return;
+    const cur = loadLiveCapture();
+    const last = cur[cur.length - 1];
+    if (last && last.app === app && last.text === text) return;   // skip an identical re-read
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const keep = [...cur, { t: now, app, text }].slice(-40);
+    fs.writeFileSync(LIVE_CAPTURE_FILE, keep.map((x) => JSON.stringify(x)).join('\n') + '\n');
+  } catch { /* non-fatal */ }
+}
+
 // --- dismissed reminders (delete) — keys of items the user removed, so derived ones stay gone ---
 export const DISMISSED_FILE = path.join(DATA_DIR, 'dismissed-reminders.json');
 export function loadDismissed() { try { return JSON.parse(fs.readFileSync(DISMISSED_FILE, 'utf8')); } catch { return []; } }

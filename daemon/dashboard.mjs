@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeConfigPath } from './config.mjs';
-import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder, loadReminders, loadHeard, dismissReminder } from './store.mjs';
+import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder, loadReminders, loadHeard, loadLiveCapture, dismissReminder } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
 import { classifyKind } from './stage4/extract.mjs';
 import { remindList } from './stage4/reminders.mjs';
@@ -527,14 +527,14 @@ function draftRowCompact(d){
   return '<div class=line><span class=k>✉️ '+esc(d.subject||'(no subject)')+(d.to?' &middot; <span style="color:var(--sec)">'+esc(d.to)+'</span>':'')+'</span>'+
     '<span class=v><button class="btn solid" data-copy="'+esc(d.id)+'">Copy</button> <button class=btn data-draftdel="'+esc(d.id)+'">Delete</button></span></div>';
 }
-function momentLine(r){
-  return '<div class=row style="cursor:default"><div class=body><div class=mt>'+esc(r.snippet||r.text||'')+'</div>'+
-    '<div class=mm>'+(r.kind&&r.kind!=='other'?esc(r.kind)+' &middot; ':'')+esc(r.app)+' &middot; '+esc(clock(r.time))+'</div></div></div>';
-}
 function loadControlLists(){
   getJSON('/api/reminders').then(function(d){S.reminders=d;var el=document.getElementById('remblock');if(!el)return;el.innerHTML=d.length?d.map(reminderRow).join(''):'<p class=muted style="padding:4px 2px 12px">Nothing pressing. Say &ldquo;remind me to&hellip;&rdquo;.</p>';});
   getJSON('/api/drafts').then(function(d){S.drafts=d;var el=document.getElementById('draftblock');if(!el)return;el.innerHTML=d.length?d.map(draftRowCompact).join(''):'<p class=muted style="padding:4px 2px 12px">No drafts yet. Say &ldquo;draft an email to&hellip;&rdquo;.</p>';});
-  getJSON('/api/timeline').then(function(d){var el=document.getElementById('momblock');if(!el)return;el.innerHTML=d.length?d.slice(0,30).map(momentLine).join(''):'<p class=muted style="padding:4px 2px 12px">No moments yet. Flip Capture on and open a work app.</p>';});
+  getJSON('/api/live').then(function(d){var el=document.getElementById('capnow');if(!el)return;
+    if(!d.length){el.innerHTML='<p class=muted style="padding:4px 2px 12px">Nothing captured yet. Open a work app (Outlook, Teams, Jira, Slack) and its text shows up here.</p>';return;}
+    var last=d[d.length-1],live=(Date.now()-last.t)<20000;
+    var head=live?'<div class=line><span class=k><span class="dot on"></span>Capturing '+esc(last.app)+'</span><span class=v>now</span></div>':'';
+    el.innerHTML=head+d.slice(-12).reverse().map(function(r){return '<div class=line><span class=k>'+esc(r.app)+' &middot; <span style="color:var(--sec)">'+esc(r.text.slice(0,90))+'</span></span><span class=v>'+esc(clock(r.t))+'</span></div>';}).join('');});
   getJSON('/api/heard').then(function(d){var el=document.getElementById('heardblock');if(!el)return;el.innerHTML=d.length?d.slice(-10).reverse().map(function(h){return '<div class=line><span class=k>'+esc(h.text)+'</span><span class=v>'+esc(clock(h.t))+'</span></div>';}).join(''):'<p class=muted style="padding:4px 2px 12px">Voice Capture off, or nothing heard yet.</p>';});
 }
 function renderControl(){
@@ -545,7 +545,7 @@ function renderControl(){
     '<div class="seclabel'+(S.sec.voice?' open':'')+'" data-sec=voice style="margin-top:24px">Voice Capture'+ICON.chev+'</div>'+
     '<div class=secbody'+(S.sec.voice?'':' style="display:none"')+'><div class=block id=heardblock><div class=muted style="padding:10px 0">&hellip;</div></div></div>'+
     '<div class="seclabel'+(S.sec.text?' open':'')+'" data-sec=text style="margin-top:18px">Text Capture'+ICON.chev+'</div>'+
-    '<div class=secbody'+(S.sec.text?'':' style="display:none"')+'><div class=rows id=momblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div></div>'+
+    '<div class=secbody'+(S.sec.text?'':' style="display:none"')+'><div class=block id=capnow><div class=muted style="padding:10px 0">&hellip;</div></div></div>'+
     '<div class=seclabel style="margin-top:18px">Reminders</div><div class=block id=remblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>'+
     '<div class=seclabel style="margin-top:18px">Drafts</div><div class=block id=draftblock><div class=muted style="padding:14px 0">Loading&hellip;</div></div>';
   loadControlLists();
@@ -771,6 +771,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/reminders/done' && req.method === 'POST') return json(res, { ok: completeReminder((await body(req)).id) });
     if (p === '/api/reminders/dismiss' && req.method === 'POST') { dismissReminder((await body(req)).key); return json(res, { ok: true }); }
     if (p === '/api/heard') return json(res, loadHeard());
+    if (p === '/api/live') return json(res, loadLiveCapture());
     // heuristic only (no LLM on a background poll → fast, no egress, RAM-light)
     if (p === '/api/reminders') return json(res, await remindList(loadEpisodes(), {}));
     if (p === '/api/episode' && req.method === 'DELETE') return json(res, delEpisode((await body(req)).hash));

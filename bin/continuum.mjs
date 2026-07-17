@@ -19,7 +19,7 @@ import path from 'node:path';
 import { loadConfig, buildDeps, redacted, DATA_DIR, CONFIG_PATH, claudeConfigPath, readRawConfig, writeRawConfig } from '../daemon/config.mjs';
 import { detectEnvironment, chooseConfig, applyChoice } from '../daemon/detect.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
-import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction, appendHeard } from '../daemon/store.mjs';
+import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction, appendHeard, appendLiveCapture } from '../daemon/store.mjs';
 import { candidates, approve, dismiss, activePreferences } from '../daemon/preferences.mjs';
 import { isCommand, runCommand } from '../daemon/stage4/voice.mjs';
 import { notify } from '../daemon/notify.mjs';
@@ -308,6 +308,9 @@ async function start() {
       runCommand(ev.text, { llm: deps.llm }).then(actionFeedback).catch(() => {});
       return;
     }
+    // Live Text Capture feed: surface screen captures immediately (before they distill into
+    // an episode on segment close), so the dashboard visibly shows activity as it happens.
+    if (ev && ev.source !== 'audio' && !fs.existsSync(PAUSE)) appendLiveCapture(ev);
     ingest(ev);
   };
 
