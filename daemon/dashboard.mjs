@@ -326,7 +326,7 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 .ask input{flex:1;border:none;background:none;outline:none;font:inherit;font-size:17px;letter-spacing:-.011em;color:var(--fg)}
 .ask input::placeholder{color:var(--faint)}
 .hintk{font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:7px;padding:3px 8px;font-weight:560}
-.seclabel{margin:46px 2px 16px;font-size:12px;font-weight:600;letter-spacing:.055em;color:var(--sec);text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
+.seclabel{margin:40px 2px 14px;font-size:18px;font-weight:600;letter-spacing:-.014em;color:var(--fg);display:flex;align-items:center;justify-content:space-between}
 .summary{font-size:23px;line-height:1.46;font-weight:400;letter-spacing:-.017em}
 .summary b{font-weight:600}
 .summary .dim{color:var(--sec)}
