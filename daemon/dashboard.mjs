@@ -127,51 +127,6 @@ function state() {
 }
 
 // Light heuristic so "worth remembering" can tag moments without an LLM.
-function tagOf(t) {
-  const s = (t || '').toLowerCase();
-  if (/\b(decid|agreed|chose|going with|settled on|we'll ship|let's ship)\b/.test(s)) return 'decision';
-  if (/\b(draft|not sent|to-?do|follow up|need to|reply later|unsent|tomorrow|next step)\b/.test(s)) return 'open loop';
-  return '';
-}
-
-// The daily digest — the home's "what happened?". Factual parts always; an LLM-written
-// one-liner when a model is configured, else a plain factual summary. Cached by store mtime
-// so the (potentially costly) LLM call doesn't run on every poll.
-let _ins = null, _insAt = -1;
-async function insights() {
-  const m = mtime();
-  if (_ins && m === _insAt) return _ins;
-  const eps = loadEpisodes();
-  const t0 = startOfToday();
-  const today = eps.filter((e) => (e.end || e.start || 0) >= t0);
-  const stats = computeStats(eps);
-  const activeMs = today.reduce((s, e) => s + (e.active_duration || 0), 0);
-  const remember = today.slice()
-    .sort((a, b) => (b.salience || 0) - (a.salience || 0))
-    .filter((e) => (e.structured && e.structured.summary) || e.text)
-    .slice(0, 3)
-    .map((e) => {
-      const t = (e.structured && e.structured.summary) || e.text || '';
-      return { hash: e.content_hash, app: e.app || 'Unknown', time: e.end || e.start || 0, text: t.slice(0, 180), full: e.text || '', tag: tagOf(t) };
-    });
-  let summary = null;
-  if (today.length) {
-    if (llm) {
-      const ctx = today.slice(-40).map((e) => '- ' + ((e.structured && e.structured.summary) || e.text || '').slice(0, 160)).join('\n');
-      try {
-        summary = await llm('In one or two short, natural sentences, recap what the user worked on today from these captured moments — like a friend summarizing their day. Be specific. No preamble, no lists.', ctx, 120);
-      } catch { summary = null; }
-    }
-    if (!summary) {
-      const top = stats.byApp.slice(0, 3).map((a) => a.app);
-      summary = top.length ? ('Mostly in ' + top.slice(0, 2).join(' and ') + (top.length > 2 ? ', with some ' + top[2] : '') + '.') : null;
-    }
-  }
-  _ins = { activeMs, byApp: stats.byApp, remember, summary, today: today.length, hasLLM: !!llm };
-  _insAt = m;
-  return _ins;
-}
-
 async function timeline(params) {
   const q = (params.get('q') || '').trim();
   const app = params.get('app'); const source = params.get('source'); const session = params.get('session');
@@ -186,22 +141,6 @@ async function timeline(params) {
   if (source) rows = rows.filter((r) => r.sources.includes(source));
   if (session) rows = rows.filter((r) => (session === '_legacy' ? !r.session : r.session === session));
   return rows.slice(0, 200);
-}
-
-async function ask(query) {
-  if (!query.trim()) return { answer: null, sources: [], hasLLM: !!llm };
-  const hits = await (await freshIndex()).search(query, { k: 6 });
-  const sources = hits.map((h, i) => ({ ...card(h.ep), n: i + 1, score: Number(h.score.toFixed(3)) }));
-  let answer = null;
-  if (llm && sources.length) {
-    const ctx = sources.map((s) => `[${s.n}] (${s.app}) ${s.full}`).join('\n');
-    answer = await llm(
-      'Answer the question using ONLY the numbered context from the user\'s own activity. Cite the moments you use inline as [n]. Be concise. If the answer is not in the context, say you do not have that in your memory yet.',
-      `Context:\n${ctx}\n\nQuestion: ${query}`,
-      320,
-    );
-  }
-  return { answer, hasLLM: !!llm, sources };
 }
 
 function setExclude(app, remove) {
@@ -243,7 +182,7 @@ function delEpisode(hash) {
   if (!hash) return { ok: false };
   const before = loadEpisodes().length;
   const remaining = rewriteEpisodes((e) => e.content_hash !== hash);
-  indexedAt = -1; _insAt = -1;
+  indexedAt = -1;
   return { ok: true, removed: before - remaining, remaining };
 }
 
@@ -253,7 +192,7 @@ function clear(scope) {
   else { const t0 = scope === 'lasthour' ? Date.now() - 3600e3 : startOfToday(); keep = (e) => (e.end || e.start || 0) < t0; }
   const before = loadEpisodes().length;
   const remaining = rewriteEpisodes(keep);
-  indexedAt = -1; _insAt = -1; _candsAt = -1;
+  indexedAt = -1; _candsAt = -1;
   return { removed: before - remaining, remaining };
 }
 
@@ -261,7 +200,7 @@ function clear(scope) {
 function discard(id) {
   if (!id) return { ok: false };
   const removed = discardSession(id);
-  indexedAt = -1; _insAt = -1; _candsAt = -1;
+  indexedAt = -1; _candsAt = -1;
   return { ok: true, removed };
 }
 
@@ -319,25 +258,8 @@ svg{display:block}
 main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--ease)}
 .eyebrow{margin-top:50px;font-size:12px;font-weight:600;letter-spacing:.066em;color:var(--sec);text-transform:uppercase}
 .hi{margin-top:7px;font-size:32px;font-weight:600;letter-spacing:-.022em;line-height:1.07}
-.ask{margin-top:24px;display:flex;align-items:center;gap:13px;height:58px;padding:0 18px;border-radius:16px;background:var(--fill);border:1px solid transparent;cursor:text;transition:background .2s var(--ease),border-color .2s var(--ease),box-shadow .2s var(--ease)}
-.ask:hover{background:var(--fill2)}
-.ask:focus-within{background:var(--card);border-color:var(--line);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 15%,transparent)}
-.ask svg{width:20px;height:20px;color:var(--faint);flex:none}
-.ask input{flex:1;border:none;background:none;outline:none;font:inherit;font-size:17px;letter-spacing:-.011em;color:var(--fg)}
-.ask input::placeholder{color:var(--faint)}
-.hintk{font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:7px;padding:3px 8px;font-weight:560}
 .seclabel{margin:40px 2px 14px;font-size:18px;font-weight:600;letter-spacing:-.014em;color:var(--fg);display:flex;align-items:center;justify-content:space-between}
-.summary{font-size:23px;line-height:1.46;font-weight:400;letter-spacing:-.017em}
-.summary b{font-weight:600}
-.summary .dim{color:var(--sec)}
 .muted{color:var(--sec);font-size:16px}
-.where{margin-top:28px;display:flex;flex-direction:column;gap:16px}
-.brow{display:flex;align-items:center;gap:16px}
-.brow .nm{width:100px;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.brow .track{flex:1;height:6px;background:var(--fill2);border-radius:99px;overflow:hidden}
-.brow .fill{display:block;height:100%;background:var(--bar);border-radius:99px;transition:width .5s var(--ease)}
-.brow:first-child .fill{background:var(--barTop)}
-.brow .v{width:48px;text-align:right;font-size:14px;color:var(--sec);font-variant-numeric:tabular-nums}
 .rows{margin-top:2px}
 .row{width:100%;text-align:left;background:none;border:none;cursor:pointer;font:inherit;color:var(--fg);display:flex;align-items:center;gap:14px;padding:17px 2px;border-top:1px solid var(--line);transition:padding .2s var(--ease)}
 .rows .row:first-child{border-top:none}
@@ -356,13 +278,8 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 .full .auth{color:var(--fg);margin-bottom:9px}
 .full .del{margin-top:13px;font:inherit;font-size:13px;font-weight:560;color:var(--danger);background:none;border:1px solid color-mix(in srgb,var(--danger) 32%,var(--line));border-radius:9px;padding:7px 13px;cursor:pointer;transition:background .15s var(--ease)}
 .full .del:hover{background:color-mix(in srgb,var(--danger) 8%,transparent)}
-.answer{font-size:20px;line-height:1.62;letter-spacing:-.014em}
-.cite{cursor:pointer;color:var(--accent);font-weight:600;font-size:.62em;vertical-align:super;padding:0 1px;text-decoration:none}
 .note{font-size:14.5px;color:var(--sec);background:var(--fill);border-radius:13px;padding:14px 16px;line-height:1.5}
 .note code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--fill2);padding:1px 6px;border-radius:5px}
-.hl{background:color-mix(in srgb,var(--accent) 11%,transparent);border-radius:10px}
-.foot{margin-top:56px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;color:var(--faint)}
-.foot svg{width:14px;height:14px}
 .back{display:inline-flex;align-items:center;gap:5px;margin-top:42px;background:none;border:none;color:var(--accent);font:inherit;font-size:15px;cursor:pointer;padding:0;transition:opacity .15s var(--ease)}
 .back:hover{opacity:.7}
 .back svg{width:18px;height:18px}
@@ -447,7 +364,6 @@ var ICON={
   search:'<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><circle cx=11 cy=11 r="7"/><path d="m21 21-4.3-4.3"/></svg>',
   chev:'<svg class=chev viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><path d="m9 6 6 6-6 6"/></svg>',
   back:'<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><path d="m15 6-6 6 6 6"/></svg>',
-  lock:'<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><rect x=4 y=11 width=16 height=10 rx="2.2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
   x:'<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.2 stroke-linecap=round stroke-linejoin=round><path d="M18 6 6 18M6 6l12 12"/></svg>',
   moon:'<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M4.4 4.4l1.7 1.7M17.9 17.9l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.4 19.6l1.7-1.7M17.9 6.1l1.7-1.7"/></svg>'
@@ -473,48 +389,6 @@ function momentRow(r,tag){
       '<div><button class=del data-del="'+esc(r.hash)+'">Delete this moment</button></div></div>':'');
 }
 
-/* ---------- HOME: insights + ask (and ask results) ---------- */
-function renderHome(){
-  main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div>'+
-    (S.result?'':'<h1 class=hi>'+greet()+'</h1>')+
-    '<label class=ask><span>'+ICON.search+'</span><input id=ask placeholder="Ask your memory anything" value="'+esc(S.query)+'"><span class=hintk>/</span></label>'+
-    '<div id=body></div>';
-  var a=document.getElementById('ask');a.focus();a.setSelectionRange(a.value.length,a.value.length);
-  if(S.result)renderResult();else renderInsights();
-}
-function renderInsights(){
-  var b=document.getElementById('body');if(!b)return;
-  b.innerHTML='<div class=seclabel>Today</div><div class=muted>Loading your day&hellip;</div>';
-  getJSON('/api/insights').then(function(d){
-    S.ins=d;var b=document.getElementById('body');if(!b||S.result)return;
-    if(!d.today){b.innerHTML='<div class=seclabel>Today</div><div class=note>Nothing captured yet today. Run <code>continuum start</code> and your day will show up here.</div>';return;}
-    var where=d.byApp.length?('<div class=where>'+d.byApp.slice(0,4).map(function(a){var w=Math.max(4,Math.round(a.ms/(d.byApp[0].ms||1)*100));return '<div class=brow><span class=nm>'+esc(a.app)+'</span><span class=track><span class=fill style="width:'+w+'%"></span></span><span class=v>'+dur(a.ms)+'</span></div>';}).join('')+'</div>'):'';
-    var rem=d.remember.length?('<div class=seclabel>Worth remembering</div><div class=rows>'+d.remember.map(function(r){return momentRow(r,r.tag);}).join('')+'</div>'):'';
-    b.innerHTML='<div class=seclabel>Today</div>'+
-      (d.summary?'<div class=summary>'+esc(d.summary)+'</div>':'<div class=muted>You were active for '+dur(d.activeMs)+' today.</div>')+
-      where+rem+
-      '<div class=foot>'+ICON.lock+'Everything stays on this device.</div>';
-  });
-}
-function runAsk(q){
-  if(!q.trim())return;S.query=q;
-  // The ask box also lives on the landing (control) view; move to the results view so
-  // the answer + sources have somewhere to render.
-  if(S.view!=='home'){S.view='home';S.result=null;render();}
-  var a=document.getElementById('ask');if(a)a.value=q;
-  var b=document.getElementById('body');if(b)b.innerHTML='<div class=seclabel>Answer</div><div class=muted>Searching your memory&hellip;</div>';
-  send('/api/ask','POST',{query:q}).then(function(r){S.result=r;if(S.view==='home')renderHome();});
-}
-function renderResult(){
-  var r=S.result,b=document.getElementById('body');if(!b)return;
-  var html='';
-  if(r.answer){html+='<div class=seclabel>Answer</div><div class=answer>'+esc(r.answer).replace(/\\[(\\d+)\\]/g,function(m,n){return '<sup class=cite data-cite="'+n+'">'+n+'</sup>';})+'</div>';}
-  else if(r.hasLLM===false){html+='<div class=seclabel>Answer</div><div class=note>No model connected, so here are the moments that match. Run <code>continuum setup</code> to connect a local model or API key for a written answer with citations.</div>';}
-  html+='<div class=seclabel style="margin-top:32px">'+(r.answer?'Sources':'Matching moments')+'</div>';
-  html+='<div class=rows>'+(r.sources.length?r.sources.map(function(s){return momentRow(s,'');}).join(''):'<div class=muted>No matching moments found.</div>')+'</div>';
-  html+='<button class=back data-home=1>'+ICON.back+'Back to today</button>';
-  b.innerHTML=html;
-}
 
 /* ---------- HOME: the whole simple dashboard — two switches, a summary, reminders, drafts ---------- */
 function controlSwitches(){
@@ -701,9 +575,9 @@ function renderPrefs(){
 }
 
 /* ---------- shell ---------- */
-function render(){if(S.view==='control')renderControl();else if(S.view==='home')renderHome();else if(S.view==='timeline')renderTimeline();else if(S.view==='sessions')renderSessions();else if(S.view==='reminders')renderReminders();else if(S.view==='drafts')renderDrafts();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
+function render(){if(S.view==='control')renderControl();else if(S.view==='timeline')renderTimeline();else if(S.view==='sessions')renderSessions();else if(S.view==='reminders')renderReminders();else if(S.view==='drafts')renderDrafts();else if(S.view==='preferences')renderPrefs();else renderPrivacy();}
 function go(v){S.view=v;S.editPref=null;if(v==='preferences')S.prefs=null;if(v==='sessions'){S.sessions=null;S.sessionDetail=null;}if(v==='drafts')S.drafts=null;if(v==='reminders')S.reminders=null;closeMenu();render();}
-function home(){S.view='control';S.result=null;S.query='';S.editPref=null;S.sessionDetail=null;render();}
+function home(){S.view='control';S.editPref=null;S.sessionDetail=null;render();}
 
 /* theme: follow system unless overridden; persisted */
 function effective(){var t=root.dataset.theme;if(t)return t;return matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
@@ -723,8 +597,7 @@ sheet.addEventListener('click',function(e){var b=e.target.closest('[data-go]');i
 main.addEventListener('click',function(e){
   var t=e.target;
   var sec=t.closest('[data-sec]');if(sec){var nm=sec.dataset.sec;S.sec[nm]=!S.sec[nm];sec.classList.toggle('open',S.sec[nm]);var body=sec.nextElementSibling;if(body)body.style.display=S.sec[nm]?'':'none';return;}
-  var del=t.closest('[data-del]');if(del){e.stopPropagation();send('/api/episode','DELETE',{hash:del.dataset.del}).then(function(){loadState();if(S.view==='timeline')loadRows();else if(S.result)renderResult();else renderInsights();});return;}
-  var cite=t.closest('[data-cite]');if(cite){var el=document.getElementById('src-'+cite.dataset.cite);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('hl');setTimeout(function(){el.classList.remove('hl');},1200);}return;}
+  var del=t.closest('[data-del]');if(del){e.stopPropagation();send('/api/episode','DELETE',{hash:del.dataset.del}).then(function(){loadState();if(S.view==='timeline')loadRows();else if(S.view==='sessions'&&S.sessionDetail)renderSessionDetail();});return;}
   if(t.closest('[data-home]')){home();return;}
   if(t.closest('#sback')){S.sessionDetail=null;render();return;}
   if(t.closest('#back')){home();return;}
@@ -745,12 +618,12 @@ main.addEventListener('click',function(e){
   if(t.closest('[data-pref-canceledit]')){S.editPref=null;renderPrefs();return;}
   var psv=t.closest('[data-pref-save]');if(psv){var inp=document.getElementById('pedit'),nv=inp?inp.value.trim():'',orig=((S.prefs.suggested||[]).concat(S.prefs.active||[])).filter(function(x){return x.id===psv.dataset.prefSave;})[0];if(nv){var bd={text:nv,kind:psv.dataset.kind};if(orig&&nv!==orig.text)bd.from=psv.dataset.prefSave;send('/api/preferences/approve','POST',bd).then(function(d){S.editPref=null;S.prefs=d;renderPrefs();});}return;}
   var pds=t.closest('[data-pref-dismiss]');if(pds){send('/api/preferences/dismiss','POST',{id:pds.dataset.prefDismiss}).then(function(d){S.prefs=d;renderPrefs();});return;}
-  var rowEl=t.closest('.row');if(rowEl&&rowEl.dataset.hash){S.open[rowEl.dataset.hash]=!S.open[rowEl.dataset.hash];if(S.view==='timeline')loadRows();else if(S.view==='sessions'&&S.sessionDetail)renderSessionDetail();else if(S.result)renderResult();else renderInsights();return;}
+  var rowEl=t.closest('.row');if(rowEl&&rowEl.dataset.hash){S.open[rowEl.dataset.hash]=!S.open[rowEl.dataset.hash];if(S.view==='timeline')loadRows();else if(S.view==='sessions'&&S.sessionDetail)renderSessionDetail();return;}
 });
-main.addEventListener('input',function(e){if(e.target.id==='q'){clearTimeout(S._t);S.facet.q=e.target.value;S._t=setTimeout(loadRows,200);}else if(e.target.id==='ask'){S.query=e.target.value;}});
-main.addEventListener('keydown',function(e){if(e.target.id==='ask'&&e.key==='Enter')runAsk(e.target.value);else if(e.target.id==='pedit'&&e.key==='Enter'){var sb=document.querySelector('[data-pref-save]');if(sb)sb.click();}else if(e.target.id==='pedit'&&e.key==='Escape'){e.stopPropagation();S.editPref=null;renderPrefs();}});
+main.addEventListener('input',function(e){if(e.target.id==='q'){clearTimeout(S._t);S.facet.q=e.target.value;S._t=setTimeout(loadRows,200);}});
+main.addEventListener('keydown',function(e){if(e.target.id==='pedit'&&e.key==='Enter'){var sb=document.querySelector('[data-pref-save]');if(sb)sb.click();}else if(e.target.id==='pedit'&&e.key==='Escape'){e.stopPropagation();S.editPref=null;renderPrefs();}});
 document.addEventListener('keydown',function(e){
-  if(e.key==='Escape'){if(sheet.classList.contains('on'))closeMenu();else if(S.result||S.view!=='home')home();}
+  if(e.key==='Escape'){if(sheet.classList.contains('on'))closeMenu();else home();}
 });
 
 function showToast(msg){var el=document.getElementById('toast');if(!el)return;el.textContent='✓ '+msg;el.classList.add('on');clearTimeout(S._tt);S._tt=setTimeout(function(){el.classList.remove('on');},4500);}
@@ -767,9 +640,7 @@ const server = http.createServer(async (req, res) => {
   const p = u.pathname;
   try {
     if (p === '/api/state') return json(res, state());
-    if (p === '/api/insights') return json(res, await insights());
     if (p === '/api/timeline') return json(res, await timeline(u.searchParams));
-    if (p === '/api/ask' && req.method === 'POST') return json(res, await ask((await body(req)).query || ''));
     if (p === '/api/exclude' && req.method === 'POST') { const b = await body(req); return json(res, setExclude(b.app, b.remove)); }
     if (p === '/api/pause' && req.method === 'POST') return json(res, setPause(!!(await body(req)).paused));
     if (p === '/api/audio' && req.method === 'POST') return json(res, setAudio(!!(await body(req)).enabled));
