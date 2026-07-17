@@ -651,7 +651,7 @@ function renderPrivacy(){
       (st.mcp.claude?'':'<p style="margin-top:13px;margin-bottom:0">Run <code>continuum mcp-install</code>, then restart Claude.</p>')+'</div>'+
     '<div class=block><h3>What your agent asked</h3><p>Every query an agent made to your memory, all on this device.</p>'+
       ((st.mcp.queries&&st.mcp.queries.length)?'<div>'+st.mcp.queries.map(function(q){return '<div class=line><span class=k>'+esc(q.tool)+(q.detail?': '+esc(String(q.detail).slice(0,52)):'')+'</span><span class=v>'+esc(clock(q.t))+' &middot; '+(q.results||0)+'</span></div>';}).join('')+'</div>':'<p style="color:var(--faint);margin:0">No agent queries yet.</p>')+'</div>'+
-    '<div class=block><h3>Your data</h3><p>Stored only on this machine. Delete anything, anytime. It&rsquo;s gone for good.</p>'+
+    '<div class=block><h3>Delete your data</h3><p>Stored only on this machine. Delete anything, anytime. It&rsquo;s gone for good.</p>'+
       '<div class=btnrow><button class=btn data-clear=lasthour>Last hour</button><button class=btn data-clear=today>Today</button><button class="btn danger" data-clear=all>Everything</button></div>'+
       '<div class=line style="margin-top:16px"><span class=k>Location</span><span class=path>'+esc(st.dataDir)+'</span></div>'+
       '<div class=line><span class=k>Total captured</span><span class=v>'+st.stats.total+' moments</span></div></div>';
