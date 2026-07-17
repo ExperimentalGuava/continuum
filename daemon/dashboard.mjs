@@ -549,7 +549,6 @@ function loadControlLists(){
 }
 function renderControl(){
   main.innerHTML='<div class=eyebrow>'+esc(dateStr())+'</div><h1 class=hi>'+greet()+'</h1>'+
-    '<label class=ask><span>'+ICON.search+'</span><input id=ask placeholder="Ask your memory anything" value="'+esc(S.query)+'"><span class=hintk>/</span></label>'+
     '<div id=cswitch style="margin-top:22px">'+controlSwitches()+'</div>'+
     '<div id=csum style="margin-top:14px">'+summaryBlock()+'</div>'+
     '<div class="seclabel'+(S.sec.voice?' open':'')+'" data-sec=voice style="margin-top:24px">Voice Capture'+ICON.chev+'</div>'+
@@ -749,8 +748,6 @@ main.addEventListener('click',function(e){
 main.addEventListener('input',function(e){if(e.target.id==='q'){clearTimeout(S._t);S.facet.q=e.target.value;S._t=setTimeout(loadRows,200);}else if(e.target.id==='ask'){S.query=e.target.value;}});
 main.addEventListener('keydown',function(e){if(e.target.id==='ask'&&e.key==='Enter')runAsk(e.target.value);else if(e.target.id==='pedit'&&e.key==='Enter'){var sb=document.querySelector('[data-pref-save]');if(sb)sb.click();}else if(e.target.id==='pedit'&&e.key==='Escape'){e.stopPropagation();S.editPref=null;renderPrefs();}});
 document.addEventListener('keydown',function(e){
-  var typing=/^(input|textarea|select)$/i.test((e.target.tagName||''));
-  if(e.key==='/'&&!typing){e.preventDefault();var a=document.getElementById('ask');if(!a){S.view='home';render();a=document.getElementById('ask');}if(a)a.focus();}
   if(e.key==='Escape'){if(sheet.classList.contains('on'))closeMenu();else if(S.result||S.view!=='home')home();}
 });
 
