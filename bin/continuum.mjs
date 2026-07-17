@@ -297,6 +297,9 @@ async function start() {
   // Serialize ingests — the segmenter's state isn't concurrency-safe, and we feed it from
   // multiple sources (screen capture + file watcher).
   const PAUSE = path.join(DATA_DIR, 'paused');   // the dashboard Control toggle drops/removes this file
+  // Starting capture means capturing — never inherit a stale `paused` sentinel from a prior
+  // session (it silently drops all screen capture while voice keeps working, which looks broken).
+  try { fs.unlinkSync(PAUSE); } catch { /* not paused */ }
   let q = Promise.resolve();
   const ingest = (ev) => { if (fs.existsSync(PAUSE)) return; q = q.then(() => p.ingest(ev)).catch(() => {}); };
   const onLine = (line) => {
