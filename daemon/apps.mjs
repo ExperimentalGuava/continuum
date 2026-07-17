@@ -33,3 +33,18 @@ export function classOf(haystack) {
   for (const c of APP_CLASSES) if (c.patterns.some((p) => h.includes(p))) return c.key;
   return null;
 }
+
+// The serviced apps, for the UI to list (key + friendly label).
+export const servicedApps = () => APP_CLASSES.map((c) => ({ key: c.key, label: c.label }));
+
+// Expand a user exclude list into the substring patterns the capture engine matches on. An entry
+// that's a curated class key ("outlook") expands to all its patterns (outlook, olk, …) so the whole
+// serviced app is excluded; any other entry passes through as a literal substring (legacy names).
+export function expandExcludes(excludes = []) {
+  const out = [];
+  for (const e of excludes) {
+    const cls = APP_CLASSES.find((c) => c.key === e);
+    if (cls) out.push(...cls.patterns); else out.push(e);
+  }
+  return [...new Set(out)];
+}

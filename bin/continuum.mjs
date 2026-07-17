@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, buildDeps, redacted, DATA_DIR, CONFIG_PATH, claudeConfigPath, readRawConfig, writeRawConfig } from '../daemon/config.mjs';
 import { detectEnvironment, chooseConfig, applyChoice } from '../daemon/detect.mjs';
+import { expandExcludes } from '../daemon/apps.mjs';
 import { Pipeline } from '../daemon/pipeline.mjs';
 import { appendEpisode, loadEpisodes, pruneEpisodes, appendSession, endSession, writeLastAction, appendHeard, appendLiveCapture } from '../daemon/store.mjs';
 import { candidates, approve, dismiss, activePreferences } from '../daemon/preferences.mjs';
@@ -350,7 +351,7 @@ async function start() {
     if (!bin) return;                   // ensureHelper printed why
     const env = {
       ...process.env,
-      CONTINUUM_EXCLUDE: [process.env.CONTINUUM_EXCLUDE, ...cfg.capture.exclude].filter(Boolean).join(','),
+      CONTINUUM_EXCLUDE: [process.env.CONTINUUM_EXCLUDE, ...expandExcludes(cfg.capture.exclude)].filter(Boolean).join(','),
       CONTINUUM_ALLOW: (cfg.capture.allow || []).join(','),   // capture only the configured work apps ([] = all)
     };
     // windowsHide: never flash a console window for the native helper. The error/exit

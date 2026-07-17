@@ -12,6 +12,7 @@ import { buildDeps, loadConfig, DATA_DIR, readRawConfig, writeRawConfig, claudeC
 import { loadEpisodes, loadIndex, STORE_FILE, rewriteEpisodes, loadDrafts, deleteDraft, readLastAction, completeReminder, loadReminders, loadHeard, loadLiveCapture, dismissReminder } from './store.mjs';
 import { daemonState, startDaemon, stopDaemon, sessions as listSessions, discardSession } from './daemon-control.mjs';
 import { classifyKind } from './stage4/extract.mjs';
+import { servicedApps } from './apps.mjs';
 import { remindList } from './stage4/reminders.mjs';
 import { extractStated, extractInferred, activePreferences, loadStore as prefStore, approve as prefApprove, dismiss as prefDismiss, removeApproved as prefRemove } from './preferences.mjs';
 
@@ -105,6 +106,7 @@ function state() {
     hasLLM: !!llm,
     dataDir: DATA_DIR,
     exclude: cfg().capture.exclude || [],
+    serviced: servicedApps(),                                  // the curated work apps, for the exclude picker
     apps: [...new Set(eps.map((e) => e.app || 'Unknown'))].sort(),
     sources: [...new Set(eps.flatMap((e) => e.source_mix || []))].sort(),
     mcp: { claude: mcpInstalled(), queries: recentMcpQueries() },
@@ -635,16 +637,18 @@ function renderDrafts(){
 /* ---------- PRIVACY & DATA ---------- */
 function renderPrivacy(){
   var st=S.state;if(!st)return;
-  var excl=st.exclude.length?'<div class=tags>'+st.exclude.map(function(a){return '<span class=taga>'+esc(a)+'<span class=x data-unexcl="'+esc(a)+'">'+ICON.x+'</span></span>';}).join('')+'</div>':'<p>No apps excluded. Everything visible is captured.</p>';
-  var opts=st.apps.filter(function(a){return st.exclude.indexOf(a)<0;}).map(function(a){return '<option value="'+esc(a)+'">'+esc(a)+'</option>';}).join('');
+  var serviced=st.serviced||[];
+  var exLabel=function(k){for(var i=0;i<serviced.length;i++)if(serviced[i].key===k)return serviced[i].label;return k;};
+  var excl=st.exclude.length?'<div class=tags>'+st.exclude.map(function(a){return '<span class=taga>'+esc(exLabel(a))+'<span class=x data-unexcl="'+esc(a)+'">'+ICON.x+'</span></span>';}).join('')+'</div>':'<p>Nothing excluded. All the serviced apps below are captured.</p>';
+  var opts=serviced.filter(function(c){return st.exclude.indexOf(c.key)<0;}).map(function(c){return '<option value="'+esc(c.key)+'">'+esc(c.label)+'</option>';}).join('');
   main.innerHTML='<button class=back id=back>'+ICON.back+'Home</button>'+
     '<div class=vh>Privacy &amp; data</div><div class=vsub>Your memory, on your terms. Nothing leaves this device. Turn capture on or off from the home screen.</div>'+
     '<div class=block><div class=line><span class=k>Pause capture</span><div class="sw'+(st.paused?'':' on')+'" id=pausesw><span class=knob></span></div></div>'+
       '<p style="margin-top:12px;margin-bottom:0">'+(st.paused?'Paused. Capture is held; the session stays open.':'Live. Capturing while Continuum is active. Pause holds capture without ending the session.')+'</p></div>'+
     '<div class=block><div class=line><span class=k>Call transcription'+((st.audio&&st.audio.recording)?' <span class=dot style="background:var(--danger)"></span>':'')+'</span><div class="sw'+((st.audio&&st.audio.enabled&&!st.audio.off)?' on':'')+'" id=audiosw><span class=knob></span></div></div>'+
       '<p style="margin-top:12px;margin-bottom:0">'+((st.audio&&st.audio.recording)?'Recording. Transcribing the call on device.':(st.audio&&st.audio.enabled&&!st.audio.off)?'On (idle). Will transcribe Teams calls on device when one is active.':'Off. Transcribes Teams calls on device (transcribe then delete); your track and the other party are separate, and the remote side never leaves this device. Toggling off is an instant kill switch.')+'</p></div>'+
-    '<div class=block><h3>Excluded apps</h3><p>Apps Continuum should never capture. Applies next time you start capture.</p>'+excl+
-      '<div class=addrow><select id=exsel>'+(opts||'<option value="">(no apps yet)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
+    '<div class=block><h3>Serviced apps</h3><p>The work apps Continuum captures. Exclude any you never want captured; the rest are captured when in focus. Applies next time you start capture.</p>'+excl+
+      '<div class=addrow><select id=exsel>'+(opts||'<option value="">(all excluded)</option>')+'</select><button class="btn solid" id=exadd>Exclude</button></div></div>'+
     '<div class=block><h3>Connect to Claude</h3><p>Let Claude read your memory over MCP.</p><div class=line><span class=k>Claude Desktop</span><span class="v'+(st.mcp.claude?' ok':'')+'">'+(st.mcp.claude?'connected':'not connected')+'</span></div>'+
       (st.mcp.claude?'':'<p style="margin-top:13px;margin-bottom:0">Run <code>continuum mcp-install</code>, then restart Claude.</p>')+'</div>'+
     '<div class=block><h3>What your agent asked</h3><p>Every query an agent made to your memory, all on this device.</p>'+
