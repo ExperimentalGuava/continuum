@@ -348,6 +348,8 @@ main{max-width:600px;margin:0 auto;padding:0 24px 96px;animation:rise .5s var(--
 .chev{width:18px;height:18px;color:var(--faint);flex:none;transition:transform .2s var(--ease)}
 .row.open .chev{transform:rotate(90deg)}
 .seclabel[data-sec]{cursor:pointer;user-select:none;-webkit-user-select:none}
+.seclabel[data-sec] .chev{width:22px;height:22px;color:var(--sec)}
+.seclabel[data-sec]:hover .chev{color:var(--fg)}
 .seclabel[data-sec].open .chev{transform:rotate(90deg)}
 .tag{font-size:11px;font-weight:560;color:var(--sec);background:var(--fill);border-radius:6px;padding:3px 9px;white-space:nowrap;letter-spacing:0}
 .full{font-size:14.5px;color:var(--sec);line-height:1.55;padding:2px 2px 18px;white-space:pre-wrap;word-break:break-word}
