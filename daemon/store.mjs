@@ -113,7 +113,8 @@ export function appendLiveCapture(ev, now = Date.now()) {
     const last = cur[cur.length - 1];
     if (last && last.app === app && last.text === text) return;   // skip an identical re-read
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    const keep = [...cur, { t: now, app, text }].slice(-40);
+    // authored = the user is typing/sending here (compose box, chat input) → owner = you.
+    const keep = [...cur, { t: now, app, text, authored: !!(ev && ev.authored) }].slice(-40);
     fs.writeFileSync(LIVE_CAPTURE_FILE, keep.map((x) => JSON.stringify(x)).join('\n') + '\n');
   } catch { /* non-fatal */ }
 }

@@ -533,8 +533,8 @@ function loadControlLists(){
   getJSON('/api/live').then(function(d){var el=document.getElementById('capnow');if(!el)return;
     if(!d.length){el.innerHTML='<p class=muted style="padding:4px 2px 12px">Nothing captured yet. Open a work app (Outlook, Teams, Jira, Slack) and its text shows up here.</p>';return;}
     var last=d[d.length-1],live=(Date.now()-last.t)<20000;
-    var head=live?'<div class=line><span class=k><span class="dot on"></span>Capturing '+esc(last.app)+'</span><span class=v>now</span></div>':'';
-    el.innerHTML=head+d.slice(-12).reverse().map(function(r){return '<div class=line><span class=k>'+esc(r.app)+' &middot; <span style="color:var(--sec)">'+esc(r.text.slice(0,90))+'</span></span><span class=v>'+esc(clock(r.t))+'</span></div>';}).join('');});
+    var head=live?'<div class=line><span class=k><span class="dot on"></span>Capturing '+esc(last.app)+(last.authored?' &middot; composing':'')+'</span><span class=v>now</span></div>':'';
+    el.innerHTML=head+d.slice(-12).reverse().map(function(r){return '<div class=line><span class=k>'+(r.authored?'<span class=tag style="color:var(--green)">you sent</span> ':'')+esc(r.app)+' &middot; <span style="color:var(--sec)">'+esc(r.text.slice(0,90))+'</span></span><span class=v>'+esc(clock(r.t))+'</span></div>';}).join('');});
   getJSON('/api/heard').then(function(d){var el=document.getElementById('heardblock');if(!el)return;el.innerHTML=d.length?d.slice(-10).reverse().map(function(h){return '<div class=line><span class=k>'+esc(h.text)+'</span><span class=v>'+esc(clock(h.t))+'</span></div>';}).join(''):'<p class=muted style="padding:4px 2px 12px">Voice Capture off, or nothing heard yet.</p>';});
 }
 function renderControl(){
