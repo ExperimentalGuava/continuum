@@ -1,0 +1,2 @@
+continuum-capture: running (OCR-first) -> NDJSON CaptureEvents on stdout
+^C
