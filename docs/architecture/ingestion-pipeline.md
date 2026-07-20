@@ -186,83 +186,118 @@ After all the stages thus far accumulate and manage the information injected by 
  Old = progressively compressed.
 
 
-## Incremental temporal knowledge graph
-Extraction writes entities/relations with `valid_at` = event time. **Contradiction
-handling** sets `invalid_at` on superseded edges (keeps history) — this is the
-knowledge-update / temporal-reasoning capability. Entity resolution runs at rollup
-time (~once/day), not per episode.
+## Incremental temporal knowledge graph (Stage 4)
 
-### 4d · Retrieval fuses tiers
-vector (T0, recall) ⊕ graph traversal (T3, structured/temporal/multi-hop) ⊕ rollup
-summaries ("this week") ⊕ recency/salience boosting ⊕ T4 lazy-extraction if structure
-is missing.
+When extraction writes a fact into the graph, it stamps it with "valid_at" using the time the event happened.
 
----
+Contradiction handling is when a new fact supersedes an old one, the old edge is not deleted. It is stamped with invalid_at and kept. This is what lets the graph answer "what changed" and "what was true before".
 
-## Cross-cutting (the stuff that bites in prod)
+Put simply: the graph never overwrites what it knew. Facts gain an end date instead of disappearing, so the history of your knowledge stays queryable.
 
-1. **PII boundary is in Stage 2.** Redact at `close()`, before embed/persist. Never
-   capture `AXSecureTextField`; regex+NER scrub emails/cards/SSNs.
-2. **Crash safety:** WAL the open-segment accumulators; `content_hash` makes
-   re-processing idempotent (no double-emit).
-3. **Backpressure:** disk-backed bounded queue; under pressure drop *lowest-salience*
-   first; never block capture.
-4. **Event-time, not arrival-time:** audio lags screen by seconds — use a reordering
-   window + watermark to fuse AX + audio + OCR into one episode by when things happened.
-5. **Battery budget:** only real cost in the data plane is the drift embedding — make
-   it optional/throttled, NPU-batched. Rule-based boundaries alone get ~80%.
-6. **Regenerable & versioned:** rollups are derived; version the prompt/model to re-run.
-7. **Idle-aware scheduling:** heavy distillation on charge+idle; local-model fallback ≈ $0.
+## 4d · Retrieval fuses tiers
 
-### Failure modes → mitigations
-- **Over-segmentation** (alt-tab debugging) → app-switch debounce + min-segment merge + Tier-B re-merge.
-- **Run-on** (all day in one IDE) → max-size chunking + drift splitting.
-- **Volatile-UI noise** (notifications, clocks, ads) → normalization + region/subtree masking.
+A query is never answered from one store. It runs against several at once and the results are merged:
 
----
+Vector search (T0): Finds episodes whose meaning matches the query.
+
+Graph traversal (T3): Answers structured, temporal and multi-hop questions by walking entities and relations.
+
+Rollup summaries: Premanufacured answers for span questions like "this week".
+
+Recency/salience boosting: This tilts the blend toward fresh, important material.
+
+Lazy extraction (T4): If the graph lacks the structure a query needs, it is extracted on the spot; pay only when asked.
+
+Put simply: the agent asks one question; Continuum quietly consults every tier and hands back the best fused evidence.
+
+
+
+## Cross-cutting concerns (the stuff that bites in prod)
+
+PII boundary lives in Stage 2: redaction happens at segment close, before anything is embedded or persisted. Password fields are never captured at all; regex and NER scrub emails, cards and SSNs from the rest.
+
+Crash safety: the segment accumulators are written to a write ahead log, and "content_hash" makes reprocessing idempotent. A replay after a crash cannot emit the same episode twice.
+Under pressure the lowest salience items are dropped first. Capture is never blocked.
+
+Event time is prioristed over arrival time. A reordering window with a watermark fuses UIA, audio and OCR into one episode by when things actually happened, not when they arrived.
+
+## Battery budget
+
+The only real cost in the live path is the drift embedding, so it is optional, throttled and batched. Rule-based boundaries alone get about 80% of the quality.
+
+## Regenerable and versioned
+
+Rollups are derived data. The prompt and model are versioned, so any rollup can be re-run later with a better model.
+
+## Idle-aware scheduling
+
+Heavy distillation waits for charging and idle. A local model fallback keeps the cost near zero. h
+
+### Failure modes and mitigations
+
+Over-segmentation: Rapid alt-tabbing while debugging shatters one piece of work into a mess. It can be currentlly mitigated in 3 ways. App switch debounce ignores brief glances, tiny segments are merged into a neighbour instead of kept, and Tier B re-merges any over-split fragments later.
+
+Run-on: A whole day inside one IDE would otherwise become a single giant segment. Mitigated by the max-size cap, which chunks it, and drift detection, which splits it when the subject changes.
+
+Volatile-UI noise: Clocks, notifications and ads change constantly without meaning anything. Mitigated by normalization (volatile tokens like timestamps are stripped before hashing) and by masking known noisy regions of the screen out of capture entirely.
+
+
 
 ## Privacy tiers (B2B)
 
-The rollup (Stage 4) is where the **consented, PII-redacted team-knowledge layer** is
-produced. Raw episodes never leave the device; only approved, redacted rollups roll up
-to the team graph. Employee-first, privacy-tiered — the company never sees raw data.
+Stage 4's rollup is where the team-knowledge layer is produced, consented, with PII redacted summaries only.
 
----
+Raw episodes never leave the device. What rolls up to the team graph is only what the employee approved, and only after redaction.
 
-## Implementation status
+Put simply its employee first and privacy tiered. The company sees the distilled, consented layer; it never sees raw data.
 
-End-to-end skeleton implemented under `daemon/`. The intelligence-plane seams
-(embedder, LLM, graph) are dependency-injected, so the whole pipeline runs and tests
-offline with zero network; real adapters swap in for live use.
 
-| Stage | File | Tests |
-|-------|------|-------|
-| 1 · capture (event-driven) | `daemon/stage1/capture.swift` → compiled `capture` | builds (live run needs Accessibility permission) |
-| 2 · dedup + segment | `daemon/stage2/segmenter.mjs` | 19 ✅ |
-| 3 · embed + index | `daemon/stage3/index.mjs` | 4 ✅ |
-| 4 · distill → graph | `daemon/stage4/distill.mjs` | 5 ✅ |
-| retrieval (fuse tiers) | `daemon/retrieval.mjs` | (covered e2e) |
-| orchestrator | `daemon/pipeline.mjs` | 6 ✅ (e2e) |
-| store (persistence) | `daemon/store.mjs` | 2 ✅ |
-| adapters (real + mock) | `daemon/adapters.mjs`, `daemon/util.mjs` | — |
 
-**36/36 tests pass.** The Swift helper emits NDJSON `CaptureEvent`s; everything
-downstream is source-agnostic Node.
+## The actual files responsible
 
-### Runbook
-```bash
-# offline tests (no network, no permissions)
-for t in stage2/segmenter stage3/index stage4/distill pipeline; do node daemon/$t.test.mjs; done
+The code conducting the above lives under daemon/. For the record, the embedder, LLM, and graph are dependency based. The whole pipeline runs and tests offline with zero network, and real adapters swap in for live use. Essentially, we can swap out the AI brains where required.
 
-# live, local-only (grant Accessibility first; uses the deterministic local embedder)
-swiftc daemon/stage1/capture.swift -o daemon/stage1/capture
-./daemon/stage1/capture | node daemon/pipeline.mjs
+Stage 1: 
 
-# with real embeddings / LLM / graph — wire adapters in pipeline.mjs:
-#   ollamaEmbedder() (local, free) or openaiEmbedder({apiKey})  # Stage 3 vectors
-#   llmClient({provider:'openai', apiKey: OPENAI_API_KEY})  # Stage 4 summaries + answers
-#   graphClient('http://localhost:8000')              # Stage 4 graph (graphiti sidecar)
-```
+Capture: daemon/stage1/win-capture/ (Rust: uia.rs, ocr.rs, capture.rs). Builds; a live run reads the focused window via UIA.
+
+Stage 2:
+
+Dedup and segment: daemon/stage2/segmenter.mjs. Tests pass.
+
+Stage 3:
+
+Embed and index: daemon/stage3/index.mjs. Tests pass.
+
+Stage 4: 
+
+Distill to graph: daemon/stage4/distill.mjs. Tests pass.
+
+Retrieval, fusing the tiers: daemon/retrieval.mjs. Covered by the end-to-end tests.
+
+Orchestrator: daemon/pipeline.mjs. Tests pass, end-to-end.
+
+Store, persistence: daemon/store.mjs. Tests pass.
+
+Adapters, real and mock: daemon/adapters.mjs, daemon/util.mjs. No tests.
+
+
+
+## Runbook
+
+Offline tests (no network, no permissions)
+
+npm test
+
+live, local-only (builds the Rust capture helper on first run)
+
+cd daemon\stage1\win-capture
+cargo build --release
+.\target\release\continuum-capture.exe | node ..\..\pipeline.mjs
+
+or just, from the repo root (auto-builds and wires the pipe for you):
+
+continuum start
 
 An earlier 9-second polling loop is superseded by `stage1/capture.swift`
 (event-driven) → `pipeline.mjs`.
